@@ -8,7 +8,7 @@ environment:
 dependencies:
   dio: ^4.0.6
   analyzer: ^4.2.0
-  # rxdart: ^0.27.4
+  rxdart: ^0.27.4
   # retrofit: ^3.0.1+1
 
 dev_dependencies:

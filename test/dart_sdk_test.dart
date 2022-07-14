@@ -3,7 +3,6 @@ import 'package:dart_sdk/api/dto.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('ws.connect', () {});
 
   test('api.login success', () async {
     final loginBean =

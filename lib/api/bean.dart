@@ -1,6 +1,4 @@
-import 'dart:ffi';
-
-import 'package:json_annotation/json_annotation.dart';
+import 'package:json_annotation/json_annotation.dart' show JsonKey, JsonSerializable;
 
 part 'bean.g.dart';
 
@@ -10,6 +8,7 @@ class ResponseBean {
   @JsonKey(required: false, defaultValue: "")
   final String msg;
   final dynamic data;
+
   ResponseBean({required this.code, required this.msg, required this.data});
 
   factory ResponseBean.fromJson(Map<String, dynamic> json) =>
