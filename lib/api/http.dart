@@ -14,7 +14,8 @@ extension DeserializeFactoryExtension<T> on DeserializeFactory<T> {
     return (dynamic resp) {
       if (resp is! List<Map<String, dynamic>>) {
         throw Exception(
-            'invalid response data type: expected Map<String, dynamic> but got ${resp.runtimeType}');
+            'invalid response data type: expected Map<String, dynamic> but got ${resp
+                .runtimeType}');
       }
       return resp.map((e) => this(e)).toList();
     };
@@ -26,6 +27,7 @@ class Http {
     baseUrl: 'http://api.glide-im.pro/api/',
     connectTimeout: 5000,
     receiveTimeout: 3000,
+    contentType: Headers.jsonContentType,
   ));
 
   void addInterceptor(Interceptor interceptor) {
@@ -56,7 +58,8 @@ class Http {
       json = d();
     } else {
       return Future.error(Exception(
-          'could not convert type ${d.runtimeType} to json, please use JsonEntity or JsonProvider instead'));
+          'could not convert type ${d
+              .runtimeType} to json, please use JsonEntity or JsonProvider instead'));
     }
     return dio.post(url, data: json).then((value) {
       return fac(_resolve(value.data));

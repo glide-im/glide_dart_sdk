@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:dart_sdk/ws/isolate.dart';
 import 'package:dart_sdk/ws/ws.dart';
@@ -7,17 +6,12 @@ import 'package:test/scaffolding.dart';
 
 void main() {
   test("isolatex", () async {
-
     final isolatex = IsolateX();
-    isolatex.start().then((value) {
-      isolatex.send("hello");
-      isolatex.receive((message) {
-        print(message);
-      });
-    }).onError((error, stackTrace) {
-      print(error);
-      print(stackTrace);
-    });
+    await isolatex.start();
+    isolatex.send("hello 1");
+    isolatex.send("hello 2");
+    isolatex.stop();
+    isolatex.send("hello 3");
     sleep(Duration(seconds: 3));
   });
   return;
@@ -26,7 +20,6 @@ void main() {
     ws.connect().then((value) {
       print("connected");
     });
-
     sleep(Duration(seconds: 10));
   });
 }
