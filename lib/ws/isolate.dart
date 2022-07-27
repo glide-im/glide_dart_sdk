@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:rxdart/rxdart.dart';
 
+
 class IsolateX {
   late ReceivePort _receivePort;
   late Stream<dynamic> _stream;
