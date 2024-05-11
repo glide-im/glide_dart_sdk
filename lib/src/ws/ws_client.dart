@@ -11,7 +11,7 @@ typedef WsClientStateListener = void Function(WsClientState state);
 
 typedef Authenticator = Future<dynamic> Function(WsClient client);
 
-typedef ReconnectFn = Future<dynamic> Function(WsConnection client);
+typedef ConnectFn = Future<dynamic> Function(WsConnection client);
 
 typedef Heartbeat = Future<dynamic> Function(WsClient client);
 
@@ -42,8 +42,8 @@ abstract class WsClient {
   void setAuthFunc(Authenticator? authFn);
 
   /// 设置当断开后重连的方法
-  /// 当 websocket 断开并需要重连时, 会调用 [reconnectFn], 可以在回调返回的 [Future] 中定义如何重连, 例如切换服务器, 延迟等待重连等.
-  void setReconnectFunc(ReconnectFn reconnectFn);
+  /// 当 websocket 断开并需要重连时, 会调用 [connectFn], 可以在回调返回的 [Future] 中定义如何重连, 例如切换服务器, 延迟等待重连等.
+  void setConnectFunc(ConnectFn connectFn);
 
   /// 订阅 ws 客户端状态变化
   StreamSubscription<dynamic> subscriptionState(WsClientStateListener listener);
@@ -136,14 +136,6 @@ class WsClientImpl implements WsClient {
     }, onError: (error) {
       Logger.err(_tag, "stateStream error: $error");
     });
-
-    // TODO 2022年8月2日11:14:34 优化心跳
-    StreamSubscription st =
-        Stream.periodic(const Duration(seconds: 40)).listen((event) {
-      if (_state == WsClientState.connected) {
-        send("PING", serializeToJson: false).execute().ignore();
-      }
-    });
   }
 
   @override
@@ -160,7 +152,7 @@ class WsClientImpl implements WsClient {
   }
 
   @override
-  void setReconnectFunc(Future Function(WsConnection client) reconnectFn) {
+  void setConnectFunc(Future Function(WsConnection client) reconnectFn) {
     _reconnectFn = reconnectFn;
   }
 
@@ -191,7 +183,7 @@ class WsClientImpl implements WsClient {
   }
 
   @override
-  StreamSubscription subscribeMessage(Function(dynamic message) listener) {
+  StreamSubscription subscribeMessage(Function(String message) listener) {
     return _msgSc.stream.listen((m) {
       try {
         listener(m);

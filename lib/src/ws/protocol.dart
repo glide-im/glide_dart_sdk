@@ -8,16 +8,26 @@ enum Action {
   messageGroupNotify("message.group.notify"),
   notifySuccess("notify.success"),
   notifyError("notify.error"),
-  heartbeat("heartbeat");
+  heartbeat("heartbeat"),
+  kickout("kickout"),
+  unknown("unknown");
 
   final String action;
 
+  static final Map<String, Action> _map = {
+    for (var action in Action.values) action.action: action
+  };
+
   const Action(this.action);
+
+  static Action of(String? action) {
+    return _map[action] ?? Action.unknown;
+  }
 }
 
 class ProtocolMessage<T> {
   final num ver;
-  final String action;
+  final Action action;
   final T data;
   final num? seq;
   final String? to;
@@ -35,18 +45,18 @@ class ProtocolMessage<T> {
   factory ProtocolMessage.fromJson(dynamic json) {
     return ProtocolMessage(
       ver: json['ver'],
-      action: json['action'],
+      action: Action.of(json['action']),
       data: json['data'],
       seq: json['seq'],
       to: json['to'],
-      ticket:  json['ticket'],
+      ticket: json['ticket'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'ver': ver,
-      'action': action,
+      'action': action.action,
       'data': data,
       'seq': seq,
       'to': to,

@@ -17,6 +17,17 @@ class GlideWsClient extends WsClientImpl {
 
   GlideWsClient() : super(WsConnection()) {
     _messageSubscription = subscribeMessage((message) => _onReceive(message));
+
+    // todo optimize
+    Stream.periodic(const Duration(seconds: 20)).listen((event) {
+      if (currentState() != WsClientState.connected) {
+        return;
+      }
+      send(
+        ProtocolMessage(action: Action.heartbeat, data: null).toJson(),
+        serializeToJson: false,
+      );
+    });
   }
 
   @override
@@ -33,15 +44,15 @@ class GlideWsClient extends WsClientImpl {
   Future<T> request<T>(Action action, dynamic data,
       {bool needAuth = true}) async {
     final seq = --_seq;
-    final m = ProtocolMessage(action: action.action, data: data, seq: seq);
+    final m = ProtocolMessage(action: action, data: data, seq: seq);
     final task = send<ProtocolMessage>(m.toJson(),
         needAuth: needAuth, awaitConnect: true);
     _setupMessageTask(seq, task, Duration(seconds: 2));
     final resp = await task.execute();
-    if (resp.action == Action.notifyError.action) {
+    if (resp.action == Action.notifyError) {
       throw resp.data;
     }
-    if (resp.action != Action.notifySuccess.action) {
+    if (resp.action != Action.notifySuccess) {
       throw "unknown action: ${resp.action}";
     }
     return resp.data as T;
@@ -78,6 +89,14 @@ class GlideWsClient extends WsClientImpl {
       sc.add(msg);
     } else {
       _messageSc.add(msg);
+      switch (msg.action) {
+        case Action.messageChat:
+          break;
+        case Action.messageGroup:
+          break;
+        default:
+          break;
+      }
     }
   }
 
