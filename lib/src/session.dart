@@ -160,13 +160,13 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   @override
   Future sendTextMessage(String content) async {
     final cm = GlideChatMessage(
-      mid: 0,
+      mid: DateTime.now().millisecondsSinceEpoch,
       seq: 0,
       from: info.from,
       to: info.id,
       type: 1,
       content: content,
-      sendAt: DateTime.now().microsecond,
+      sendAt: DateTime.now().millisecondsSinceEpoch,
     );
     String ticket = info.ticket;
     if (ticket.isEmpty) {
