@@ -1,10 +1,15 @@
 import 'dart:async';
 
+import 'package:glide_dart_sdk/src/api/session_api.dart';
+import 'package:glide_dart_sdk/src/ws/protocol.dart';
+import 'package:glide_dart_sdk/src/ws/ws_im_client.dart';
+
 import 'messages.dart';
 
 class GlideSessionInfo {
   final String id;
   final String ticket;
+  final String from;
   final String to;
   final String title;
   final num createAt;
@@ -15,6 +20,7 @@ class GlideSessionInfo {
   GlideSessionInfo({
     required this.id,
     required this.ticket,
+    required this.from,
     required this.to,
     required this.title,
     required this.createAt,
@@ -23,15 +29,16 @@ class GlideSessionInfo {
     required this.lastReadSeq,
   });
 
-  factory GlideSessionInfo.create2(String to) {
-    return GlideSessionInfo.create(to, to);
+  factory GlideSessionInfo.create2(String from, String to) {
+    return GlideSessionInfo.create(from, to, to);
   }
 
-  factory GlideSessionInfo.create(String to, String title) {
+  factory GlideSessionInfo.create(String from, String to, String title) {
     final now = DateTime.now().millisecondsSinceEpoch;
     return GlideSessionInfo(
       id: to,
       ticket: "",
+      from: from,
       to: to,
       title: title,
       createAt: now,
@@ -95,7 +102,7 @@ abstract interface class GlideSession {
 
   Future clearUnread();
 
-  dynamic sendTextMessage(String content);
+  Future sendTextMessage(String content);
 
   void onTypingEvent();
 
@@ -105,11 +112,12 @@ abstract interface class GlideSession {
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
-  factory GlideSessionInternal(String to) =>
-      GlideSessionInternal.create(GlideSessionInfo.create2(to));
+  factory GlideSessionInternal(String from, String to, GlideWsClient ws) =>
+      GlideSessionInternal.create(GlideSessionInfo.create2(from, to), ws);
 
-  factory GlideSessionInternal.create(GlideSessionInfo info) =>
-      _GlideSessionInternalImpl(info, GlideMessageMemoryCache());
+  factory GlideSessionInternal.create(
+          GlideSessionInfo info, GlideWsClient ws) =>
+      _GlideSessionInternalImpl(info, GlideMessageMemoryCache(), ws);
 
   Future onMessage(GlideChatMessage message);
 }
@@ -117,10 +125,11 @@ abstract interface class GlideSessionInternal extends GlideSession {
 class _GlideSessionInternalImpl implements GlideSessionInternal {
   final GlideSessionInfo i;
   final GlideMessageCache cache;
+  final GlideWsClient ws;
   final StreamController<GlideChatMessage> _messageSc =
       StreamController.broadcast();
 
-  _GlideSessionInternalImpl(this.i, this.cache);
+  _GlideSessionInternalImpl(this.i, this.cache, this.ws);
 
   @override
   Future onMessage(GlideChatMessage message) async {
@@ -149,9 +158,22 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   }
 
   @override
-  sendTextMessage(String content) {
-    // TODO: implement sendTextMessage
-    throw UnimplementedError();
+  Future sendTextMessage(String content) async {
+    final cm = GlideChatMessage(
+      mid: 0,
+      seq: 0,
+      from: info.from,
+      to: info.id,
+      type: 1,
+      content: content,
+      sendAt: DateTime.now().microsecond,
+    );
+    String ticket = info.ticket;
+    if (ticket.isEmpty) {
+      final bean = await SessionApi.getTicket(info.to);
+      ticket = bean.ticket;
+    }
+    await ws.sendChatMessage(Action.messageGroup, cm, ticket).execute();
   }
 
   @override

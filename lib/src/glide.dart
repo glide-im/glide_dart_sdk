@@ -15,9 +15,10 @@ class Glide {
   final _cli = GlideWsClient();
   dynamic _credential;
   String _uid = "";
-  final SessionManagerInternal _sessions = SessionManagerInternal();
+  late SessionManagerInternal _sessions;
 
   Glide() {
+    _sessions = SessionManagerInternal(_cli);
     init();
   }
 
@@ -73,7 +74,9 @@ class Glide {
     _uid = resp.uid!.toString();
     _credential = resp.credential!.toJson();
     Http.setToken(resp.token!);
+    _sessions.setMyId(_uid);
     await _cli.request(Action.auth, _credential, needAuth: false);
+    _cli.setAuthenticationCompleted();
   }
 
   Future _connectFn(WsConnection client) async {

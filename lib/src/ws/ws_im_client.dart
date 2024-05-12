@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:glide_dart_sdk/src/messages.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
@@ -24,9 +25,8 @@ class GlideWsClient extends WsClientImpl {
         return;
       }
       send(
-        ProtocolMessage(action: Action.heartbeat, data: null).toJson(),
-        serializeToJson: false,
-      );
+        ProtocolMessage(action: Action.heartbeat, data: {}).toJson(),
+      ).execute().ignore();
     });
   }
 
@@ -67,6 +67,20 @@ class GlideWsClient extends WsClientImpl {
     super.setAuthFunc((c) async {
       await authFn(this);
     });
+  }
+
+  MessageTask<T> sendChatMessage<T>(
+      Action action, GlideChatMessage chatMessage, String ticket) {
+    final m = ProtocolMessage(
+      action: action,
+      data: chatMessage.toJson(),
+      seq: 0,
+      ticket: ticket,
+      to: chatMessage.to,
+    );
+    final task = super.send<T>(m.toJson(),
+        serializeToJson: true, awaitConnect: true, needAuth: true);
+    return task;
   }
 
   @override

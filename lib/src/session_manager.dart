@@ -4,6 +4,7 @@ import 'package:glide_dart_sdk/src/messages.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 
 import 'session.dart';
+import 'ws/ws_im_client.dart';
 
 abstract interface class SessionListCache {
   Future<List<GlideSessionInfo>> getSessions();
@@ -90,10 +91,12 @@ abstract interface class SessionManager {
 }
 
 abstract interface class SessionManagerInternal extends SessionManager {
-  factory SessionManagerInternal() =>
-      _SessionManagerImpl(cache: SessionListMemoryCache());
+  factory SessionManagerInternal(GlideWsClient ws) =>
+      _SessionManagerImpl(cache: SessionListMemoryCache(), ws: ws);
 
   Stream<String> init();
+
+  void setMyId(String id);
 
   onMessage(ProtocolMessage message);
 }
@@ -101,24 +104,31 @@ abstract interface class SessionManagerInternal extends SessionManager {
 class _SessionManagerImpl implements SessionManagerInternal {
   final Map<String, GlideSessionInternal> id2session = {};
   final SessionListCache cache;
+  final GlideWsClient ws;
+  late String myId;
   bool initialized = false;
   final StreamController<SessionEvent> eventController =
       StreamController.broadcast(onCancel: () {}, onListen: () {});
 
-  _SessionManagerImpl({required this.cache});
+  _SessionManagerImpl({required this.cache, required this.ws});
+
+  @override
+  void setMyId(String id) {
+    myId = id;
+  }
 
   @override
   Stream<String> init() async* {
     final cachedSession = await cache.getSessions();
     await Future.delayed(Duration(seconds: 1));
     for (var info in cachedSession) {
-      id2session[info.id] = GlideSessionInternal.create(info);
+      id2session[info.id] = GlideSessionInternal.create(info, ws);
     }
   }
 
   @override
   Future<GlideSession> create(String to) async {
-    final session = GlideSessionInternal(to);
+    final session = GlideSessionInternal(myId, to, ws);
     id2session[session.info.id] = session;
     await cache.addSession(session.info);
     return session;
@@ -135,8 +145,8 @@ class _SessionManagerImpl implements SessionManagerInternal {
     if (session != null) {
       session.onMessage(cm);
     } else {
-      final info = GlideSessionInfo.create2(cm.to);
-      final session = GlideSessionInternal.create(info);
+      final info = GlideSessionInfo.create2(myId, cm.to);
+      final session = GlideSessionInternal.create(info, ws);
       cache.addSession(info);
       id2session[info.id] = session;
       eventController.add(SessionEvent(
