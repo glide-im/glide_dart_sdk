@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:glide_dart_sdk/src/api/session_api.dart';
+import 'package:glide_dart_sdk/src/errors.dart';
+import 'package:glide_dart_sdk/src/session_manager.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:glide_dart_sdk/src/ws/ws_im_client.dart';
 
@@ -12,6 +14,8 @@ class GlideSessionInfo {
   final String from;
   final String to;
   final String title;
+  final num unread;
+  final String lastMessage;
   final num createAt;
   final num updateAt;
   final num lastReadAt;
@@ -23,6 +27,8 @@ class GlideSessionInfo {
     required this.from,
     required this.to,
     required this.title,
+    required this.unread,
+    required this.lastMessage,
     required this.createAt,
     required this.updateAt,
     required this.lastReadAt,
@@ -41,10 +47,40 @@ class GlideSessionInfo {
       from: from,
       to: to,
       title: title,
+      unread: 0,
+      lastMessage: "session created",
       createAt: now,
       updateAt: now,
       lastReadAt: now,
       lastReadSeq: 0,
+    );
+  }
+
+  GlideSessionInfo copyWith({
+    String? id,
+    String? ticket,
+    String? from,
+    String? to,
+    String? title,
+    num? unread,
+    String? lastMessage,
+    num? createAt,
+    num? updateAt,
+    num? lastReadAt,
+    num? lastReadSeq,
+  }) {
+    return GlideSessionInfo(
+      id: id ?? this.id,
+      ticket: ticket ?? this.ticket,
+      from: from ?? this.from,
+      to: to ?? this.to,
+      title: title ?? this.title,
+      unread: unread ?? this.unread,
+      lastMessage: lastMessage ?? this.lastMessage,
+      createAt: createAt ?? this.createAt,
+      updateAt: updateAt ?? this.updateAt,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
+      lastReadSeq: lastReadSeq ?? this.lastReadSeq,
     );
   }
 }
@@ -102,9 +138,13 @@ abstract interface class GlideSession {
 
   Future clearUnread();
 
+  Future addUnread(int count);
+
   Future sendTextMessage(String content);
 
   void onTypingEvent();
+
+  Future recallMessage(String mid);
 
   Future<List<dynamic>> history();
 
@@ -112,39 +152,62 @@ abstract interface class GlideSession {
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
-  factory GlideSessionInternal(String from, String to, GlideWsClient ws) =>
-      GlideSessionInternal.create(GlideSessionInfo.create2(from, to), ws);
+  factory GlideSessionInternal(String from, String to, GlideWsClient ws,
+          SessionListCache sessionListCache) =>
+      GlideSessionInternal.create(
+          GlideSessionInfo.create2(from, to), sessionListCache, ws);
 
-  factory GlideSessionInternal.create(
-          GlideSessionInfo info, GlideWsClient ws) =>
-      _GlideSessionInternalImpl(info, GlideMessageMemoryCache(), ws);
+  factory GlideSessionInternal.create(GlideSessionInfo info,
+          SessionListCache sessionListCache, GlideWsClient ws) =>
+      _GlideSessionInternalImpl(
+          info, GlideMessageMemoryCache(), sessionListCache, ws);
 
-  Future onMessage(GlideChatMessage message);
+  Stream<String> onMessage(GlideChatMessage message);
 }
 
 class _GlideSessionInternalImpl implements GlideSessionInternal {
-  final GlideSessionInfo i;
+  GlideSessionInfo i;
   final GlideMessageCache cache;
+  final SessionListCache sessionListCache;
   final GlideWsClient ws;
   final StreamController<GlideChatMessage> _messageSc =
       StreamController.broadcast();
 
-  _GlideSessionInternalImpl(this.i, this.cache, this.ws);
+  _GlideSessionInternalImpl(this.i, this.cache, this.sessionListCache, this.ws);
 
   @override
-  Future onMessage(GlideChatMessage message) async {
-    cache.addMessage(i.id, message);
+  Stream<String> onMessage(GlideChatMessage message) async* {
+    yield "session_${i.id} received";
+    await cache.addMessage(i.id, message);
+    i = i.copyWith(
+      lastMessage: message.content.toString(),
+      updateAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _save();
+    yield "session updated";
+    _messageSc.add(message);
   }
 
   @override
-  Future clearUnread() {
-    // TODO: implement clearUnread
-    throw UnimplementedError();
+  Future clearUnread() async {
+    i = i.copyWith(unread: 0);
+    await _save();
+  }
+
+  @override
+  Future addUnread(int count) async {
+    i = i.copyWith(unread: i.unread + count);
+    await _save();
+  }
+
+  @override
+  Future recallMessage(String mid) async {
+    // todo
   }
 
   @override
   Future<List> history() async {
-    return cache.getMessages(i.id);
+    return await cache.getMessages(i.id);
   }
 
   @override
@@ -178,4 +241,8 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
 
   @override
   GlideSessionInfo get info => i;
+
+  Future _save() async {
+    await sessionListCache.updateSession(i);
+  }
 }

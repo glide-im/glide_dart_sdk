@@ -4,7 +4,7 @@ class GlideChatMessage {
   final String from;
   final String to;
   final num type;
-  final String content;
+  final dynamic content;
   final num sendAt;
 
   GlideChatMessage({

@@ -122,13 +122,13 @@ class _SessionManagerImpl implements SessionManagerInternal {
     final cachedSession = await cache.getSessions();
     await Future.delayed(Duration(seconds: 1));
     for (var info in cachedSession) {
-      id2session[info.id] = GlideSessionInternal.create(info, ws);
+      id2session[info.id] = GlideSessionInternal.create(info, cache, ws);
     }
   }
 
   @override
   Future<GlideSession> create(String to) async {
-    final session = GlideSessionInternal(myId, to, ws);
+    final session = GlideSessionInternal(myId, to, ws, cache);
     id2session[session.info.id] = session;
     await cache.addSession(session.info);
     return session;
@@ -146,7 +146,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
       session.onMessage(cm);
     } else {
       final info = GlideSessionInfo.create2(myId, cm.to);
-      final session = GlideSessionInternal.create(info, ws);
+      final session = GlideSessionInternal.create(info, cache, ws);
       cache.addSession(info);
       id2session[info.id] = session;
       eventController.add(SessionEvent(

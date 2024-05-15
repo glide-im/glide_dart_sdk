@@ -96,7 +96,11 @@ class Glide {
       case Action.messageGroup:
       case Action.messageChat:
       case Action.messageGroupNotify:
-        _sessions.onMessage(message);
+        try {
+          _sessions.onMessage(message);
+        } catch (e, s) {
+          print(s);
+        }
         break;
       case Action.kickout:
         logout().ignore();
