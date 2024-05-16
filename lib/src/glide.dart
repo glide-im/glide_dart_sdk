@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:glide_dart_sdk/src/api/bean/auth_bean.dart';
 import 'package:glide_dart_sdk/src/api/http.dart';
+import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
@@ -11,20 +13,36 @@ import 'session_manager.dart';
 import 'ws/protocol.dart';
 import 'ws/ws_im_client.dart';
 
+enum GlideState {
+  init,
+  disconnected,
+  connected,
+  connecting;
+}
+
 class Glide {
+  final tag = "Glide";
   final _cli = GlideWsClient();
   dynamic _credential;
   String _uid = "";
   late SessionManagerInternal _sessions;
+  final StreamController<GlideState> _stateSc = StreamController.broadcast();
+  ShouldCountUnread? shouldCountUnread = null;
+
+  GlideState state = GlideState.init;
 
   Glide() {
     _sessions = SessionManagerInternal(_cli);
-    init();
   }
 
   String? uid() => _uid;
 
+
   Future init() async {
+    states().listen((event) {
+      state = event;
+    });
+
     Http.init(Configs.apiBaseUrl);
     await _sessions.init().toList();
 
@@ -35,8 +53,10 @@ class Glide {
         case WsClientState.known:
           break;
         case WsClientState.disconnected:
+          _stateSc.add(GlideState.disconnected);
           break;
         case WsClientState.connecting:
+          _stateSc.add(GlideState.connecting);
           break;
         case WsClientState.connected:
           break;
@@ -45,7 +65,7 @@ class Glide {
       }
     });
     _cli.messageStream().listen(
-      (event) {
+          (event) {
         _handleMessage(event);
       },
       onError: (e) {},
@@ -53,12 +73,22 @@ class Glide {
     );
   }
 
+  Stream<GlideState> states() => _stateSc.stream;
+
   SessionManager get sessionManager => _sessions;
 
   Future logout() async {
     _uid = "";
     _credential = null;
     await _cli.close();
+  }
+
+  static void setLogger(IOSink? sink) {
+    Logger.setSink(sink);
+  }
+
+  Future tokenLogin(String token) async {
+    await _login(AuthApi.loginToken(token));
   }
 
   Future guestLogin(String avatar, String nickname) async {
@@ -76,6 +106,7 @@ class Glide {
     Http.setToken(resp.token!);
     _sessions.setMyId(_uid);
     await _cli.request(Action.auth, _credential, needAuth: false);
+    _stateSc.add(GlideState.connected);
     _cli.setAuthenticationCompleted();
   }
 
@@ -88,6 +119,7 @@ class Glide {
       throw "not authenticated yet";
     }
     await client.request(Action.auth, _credential, needAuth: false);
+    _stateSc.add(GlideState.connected);
     client.setAuthenticationCompleted();
   }
 
@@ -96,11 +128,12 @@ class Glide {
       case Action.messageGroup:
       case Action.messageChat:
       case Action.messageGroupNotify:
-        try {
-          _sessions.onMessage(message);
-        } catch (e, s) {
-          print(s);
-        }
+        _sessions.onMessage(message, shouldCountUnread ?? (s) => true).listen((
+            event) {
+          Logger.info(tag, event);
+        }, onError: (e) {
+          Logger.err(tag, e);
+        });
         break;
       case Action.kickout:
         logout().ignore();

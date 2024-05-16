@@ -8,6 +8,10 @@ class Logger {
     _log('MARK', '-', _getFileLineInfo(1));
   }
 
+  static void setSink(IOSink? sink){
+    _sink = sink;
+  }
+
   static void setDebug() {
     _isDebug = true;
   }
@@ -38,7 +42,7 @@ class Logger {
       return;
     }
     final t = DateTime.now().toIso8601String();
-    final l = '$t\t$level/$tag: $message';
+    final l = '$level/$tag: $message';
     stdout.writeln(l);
     _sink?.writeln(l);
   }

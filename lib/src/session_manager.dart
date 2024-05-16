@@ -6,6 +6,8 @@ import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'session.dart';
 import 'ws/ws_im_client.dart';
 
+typedef ShouldCountUnread = bool Function(GlideSessionInfo);
+
 abstract interface class SessionListCache {
   Future<List<GlideSessionInfo>> getSessions();
 
@@ -98,7 +100,8 @@ abstract interface class SessionManagerInternal extends SessionManager {
 
   void setMyId(String id);
 
-  onMessage(ProtocolMessage message);
+  Stream<String> onMessage(ProtocolMessage message,
+      ShouldCountUnread shouldCountUnread);
 }
 
 class _SessionManagerImpl implements SessionManagerInternal {
@@ -108,7 +111,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
   late String myId;
   bool initialized = false;
   final StreamController<SessionEvent> eventController =
-      StreamController.broadcast(onCancel: () {}, onListen: () {});
+  StreamController.broadcast(onCancel: () {}, onListen: () {});
 
   _SessionManagerImpl({required this.cache, required this.ws});
 
@@ -124,6 +127,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     for (var info in cachedSession) {
       id2session[info.id] = GlideSessionInternal.create(info, cache, ws);
     }
+    initialized = true;
   }
 
   @override
@@ -135,26 +139,33 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  onMessage(ProtocolMessage message) {
+  Stream<String> onMessage(ProtocolMessage message,
+      ShouldCountUnread shouldCountUnread) async* {
     if (message.action == Action.messageGroupNotify) {
+      yield "message ignored";
       return;
     }
     GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
-
-    final session = id2session[cm.to];
-    if (session != null) {
-      session.onMessage(cm);
-    } else {
+    GlideSessionInternal? session = id2session[cm.to];
+    if (session == null) {
       final info = GlideSessionInfo.create2(myId, cm.to);
-      final session = GlideSessionInternal.create(info, cache, ws);
+      session = GlideSessionInternal.create(info, cache, ws);
       cache.addSession(info);
       id2session[info.id] = session;
       eventController.add(SessionEvent(
         type: SessionEventType.sessionAdded,
         id: session.info.id,
       ));
-      session.onMessage(cm);
+      yield "session created";
     }
+    yield* session.onMessage(cm);
+    if (shouldCountUnread(session.info)) {
+      session.addUnread(1);
+    }
+    eventController.add(SessionEvent(
+      type: SessionEventType.sessionUpdated,
+      id: session!.info.id,
+    ));
   }
 
   @override
