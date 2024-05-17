@@ -83,7 +83,7 @@ abstract interface class SessionManager {
 
   Future<GlideSession?> get(String id);
 
-  Future<GlideSession> create(String target);
+  Future<GlideSession> create(String target, SessionType type);
 
   Future<List<GlideSession>> getSessions();
 
@@ -100,8 +100,8 @@ abstract interface class SessionManagerInternal extends SessionManager {
 
   void setMyId(String id);
 
-  Stream<String> onMessage(ProtocolMessage message,
-      ShouldCountUnread shouldCountUnread);
+  Stream<String> onMessage(
+      ProtocolMessage message, ShouldCountUnread shouldCountUnread);
 }
 
 class _SessionManagerImpl implements SessionManagerInternal {
@@ -111,7 +111,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
   late String myId;
   bool initialized = false;
   final StreamController<SessionEvent> eventController =
-  StreamController.broadcast(onCancel: () {}, onListen: () {});
+      StreamController.broadcast(onCancel: () {}, onListen: () {});
 
   _SessionManagerImpl({required this.cache, required this.ws});
 
@@ -131,31 +131,33 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Future<GlideSession> create(String to) async {
-    final session = GlideSessionInternal(myId, to, ws, cache);
+  Future<GlideSession> create(String to, SessionType type) async {
+    final session = GlideSessionInternal(myId, to, ws, cache, type);
     id2session[session.info.id] = session;
     await cache.addSession(session.info);
+    eventController.add(SessionEvent(
+      type: SessionEventType.sessionAdded,
+      id: session.info.id,
+    ));
     return session;
   }
 
   @override
-  Stream<String> onMessage(ProtocolMessage message,
-      ShouldCountUnread shouldCountUnread) async* {
+  Stream<String> onMessage(
+      ProtocolMessage message, ShouldCountUnread shouldCountUnread) async* {
     if (message.action == Action.messageGroupNotify) {
       yield "message ignored";
       return;
     }
     GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
-    GlideSessionInternal? session = id2session[cm.to];
+    final to = cm.from == myId ? cm.to : cm.from;
+    GlideSessionInternal? session = id2session[to];
+
     if (session == null) {
-      final info = GlideSessionInfo.create2(myId, cm.to);
-      session = GlideSessionInternal.create(info, cache, ws);
-      cache.addSession(info);
-      id2session[info.id] = session;
-      eventController.add(SessionEvent(
-        type: SessionEventType.sessionAdded,
-        id: session.info.id,
-      ));
+      final type = message.action.name.contains("group")
+          ? SessionType.channel
+          : SessionType.chat;
+      session = await create(to, type) as GlideSessionInternal;
       yield "session created";
     }
     yield* session.onMessage(cm);
@@ -164,7 +166,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     }
     eventController.add(SessionEvent(
       type: SessionEventType.sessionUpdated,
-      id: session!.info.id,
+      id: session.info.id,
     ));
   }
 

@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:glide_dart_sdk/src/api/session_api.dart';
-import 'package:glide_dart_sdk/src/errors.dart';
 import 'package:glide_dart_sdk/src/session_manager.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:glide_dart_sdk/src/ws/ws_im_client.dart';
 
 import 'messages.dart';
+
+enum SessionType {
+  chat,
+  channel;
+}
 
 class GlideSessionInfo {
   final String id;
@@ -20,6 +24,7 @@ class GlideSessionInfo {
   final num updateAt;
   final num lastReadAt;
   final num lastReadSeq;
+  final SessionType type;
 
   GlideSessionInfo({
     required this.id,
@@ -33,13 +38,15 @@ class GlideSessionInfo {
     required this.updateAt,
     required this.lastReadAt,
     required this.lastReadSeq,
+    required this.type,
   });
 
-  factory GlideSessionInfo.create2(String from, String to) {
-    return GlideSessionInfo.create(from, to, to);
+  factory GlideSessionInfo.create2(String from, String to, SessionType type) {
+    return GlideSessionInfo.create(from, to, to, type);
   }
 
-  factory GlideSessionInfo.create(String from, String to, String title) {
+  factory GlideSessionInfo.create(
+      String from, String to, String title, SessionType type) {
     final now = DateTime.now().millisecondsSinceEpoch;
     return GlideSessionInfo(
       id: to,
@@ -53,6 +60,7 @@ class GlideSessionInfo {
       updateAt: now,
       lastReadAt: now,
       lastReadSeq: 0,
+      type: type,
     );
   }
 
@@ -68,6 +76,7 @@ class GlideSessionInfo {
     num? updateAt,
     num? lastReadAt,
     num? lastReadSeq,
+    SessionType? type,
   }) {
     return GlideSessionInfo(
       id: id ?? this.id,
@@ -81,6 +90,7 @@ class GlideSessionInfo {
       updateAt: updateAt ?? this.updateAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
       lastReadSeq: lastReadSeq ?? this.lastReadSeq,
+      type: type ?? this.type,
     );
   }
 }
@@ -146,16 +156,16 @@ abstract interface class GlideSession {
 
   Future recallMessage(String mid);
 
-  Future<List<dynamic>> history();
+  Future<List<GlideChatMessage>> history();
 
   Stream<GlideChatMessage> messages();
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
   factory GlideSessionInternal(String from, String to, GlideWsClient ws,
-          SessionListCache sessionListCache) =>
+          SessionListCache sessionListCache, SessionType type) =>
       GlideSessionInternal.create(
-          GlideSessionInfo.create2(from, to), sessionListCache, ws);
+          GlideSessionInfo.create2(from, to, type), sessionListCache, ws);
 
   factory GlideSessionInternal.create(GlideSessionInfo info,
           SessionListCache sessionListCache, GlideWsClient ws) =>
@@ -206,7 +216,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   }
 
   @override
-  Future<List> history() async {
+  Future<List<GlideChatMessage>> history() async {
     return await cache.getMessages(i.id);
   }
 
@@ -236,7 +246,10 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
       final bean = await SessionApi.getTicket(info.to);
       ticket = bean.ticket;
     }
-    await ws.sendChatMessage(Action.messageGroup, cm, ticket).execute();
+    final action = info.type == SessionType.channel
+        ? Action.messageGroup
+        : Action.messageChat;
+    await ws.sendChatMessage(action, cm, ticket).execute();
   }
 
   @override

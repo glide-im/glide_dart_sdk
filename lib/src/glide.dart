@@ -27,7 +27,7 @@ class Glide {
   String _uid = "";
   late SessionManagerInternal _sessions;
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
-  ShouldCountUnread? shouldCountUnread = null;
+  ShouldCountUnread? shouldCountUnread;
 
   GlideState state = GlideState.init;
 
@@ -116,9 +116,16 @@ class Glide {
 
   Future _authenticationFn(GlideWsClient client) async {
     if (_credential == null) {
+      client.close();
       throw "not authenticated yet";
     }
-    await client.request(Action.auth, _credential, needAuth: false);
+    try {
+      final result = await client.request(
+          Action.auth, _credential, needAuth: false);
+    } catch (e) {
+      client.close();
+      throw "authenticated failed";
+    }
     _stateSc.add(GlideState.connected);
     client.setAuthenticationCompleted();
   }

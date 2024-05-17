@@ -318,6 +318,7 @@ class WsClientImpl implements WsClient {
       Logger.debug(_tag, "authentication success");
     }).catchError((e) {
       Logger.debug(_tag, "authentication failed: $e");
+      close(discardMessages: true);
     });
   }
 
