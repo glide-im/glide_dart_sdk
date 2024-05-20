@@ -137,7 +137,7 @@ class Glide {
       case Action.messageGroupNotify:
         _sessions.onMessage(message, shouldCountUnread ?? (s) => true).listen((
             event) {
-          Logger.info(tag, event);
+          Logger.info(tag, "[message-${message.hashCode}] $event");
         }, onError: (e) {
           Logger.err(tag, e);
         });

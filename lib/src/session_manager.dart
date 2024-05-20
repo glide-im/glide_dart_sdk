@@ -125,7 +125,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     final cachedSession = await cache.getSessions();
     await Future.delayed(Duration(seconds: 1));
     for (var info in cachedSession) {
-      id2session[info.id] = GlideSessionInternal.create(info, cache, ws);
+      id2session[info.id] = GlideSessionInternal.create(info, myId, cache, ws);
     }
     initialized = true;
   }
@@ -150,15 +150,13 @@ class _SessionManagerImpl implements SessionManagerInternal {
       return;
     }
     GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
-    final to = cm.from == myId ? cm.to : cm.from;
-    GlideSessionInternal? session = id2session[to];
+    final target = cm.to == myId ? cm.from : cm.to;
+    GlideSessionInternal? session = id2session[target];
 
     if (session == null) {
-      final type = message.action.name.contains("group")
-          ? SessionType.channel
-          : SessionType.chat;
-      session = await create(to, type) as GlideSessionInternal;
-      yield "session created";
+      final type = cm.to != myId ? SessionType.channel : SessionType.chat;
+      session = await create(target, type) as GlideSessionInternal;
+      yield "session created ${session.info.id}";
     }
     yield* session.onMessage(cm);
     if (shouldCountUnread(session.info)) {

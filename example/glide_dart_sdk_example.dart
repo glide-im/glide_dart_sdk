@@ -1,24 +1,27 @@
-import 'package:glide_dart_sdk/src/glide.dart';
-import 'package:glide_dart_sdk/src/session.dart';
+import 'package:glide_dart_sdk/glide_dart_sdk.dart';
 
 void main() async {
   final glide = Glide();
-
+  await glide.init();
   await glide.guestLogin("avatar", "2");
   await delay(1);
 
   glide.sessionManager.events().listen((event) {
     print("event: $event");
-    glide.sessionManager.get(event.id).then((value) => initWorkChannel(value));
+    if (event.type == SessionEventType.sessionAdded) {
+      glide.sessionManager
+          .get(event.id)
+          .then((value) => initWorkChannel(value));
+    }
   });
 
   await glide.sessionManager.whileInitialized();
 
-  glide.sessionManager.getSessions().then((sessions) {
-    print("sessions: $sessions");
-  });
-
   await delay(10);
+  final sessions = await glide.sessionManager.getSessions();
+  for (var ses in sessions) {
+    print("${ses.info}");
+  }
   await glide.logout();
 }
 

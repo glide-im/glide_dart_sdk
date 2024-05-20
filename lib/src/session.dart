@@ -15,7 +15,6 @@ enum SessionType {
 class GlideSessionInfo {
   final String id;
   final String ticket;
-  final String from;
   final String to;
   final String title;
   final num unread;
@@ -29,7 +28,6 @@ class GlideSessionInfo {
   GlideSessionInfo({
     required this.id,
     required this.ticket,
-    required this.from,
     required this.to,
     required this.title,
     required this.unread,
@@ -41,17 +39,15 @@ class GlideSessionInfo {
     required this.type,
   });
 
-  factory GlideSessionInfo.create2(String from, String to, SessionType type) {
-    return GlideSessionInfo.create(from, to, to, type);
+  factory GlideSessionInfo.create2(String to, SessionType type) {
+    return GlideSessionInfo.create(to, to, type);
   }
 
-  factory GlideSessionInfo.create(
-      String from, String to, String title, SessionType type) {
+  factory GlideSessionInfo.create(String to, String title, SessionType type) {
     final now = DateTime.now().millisecondsSinceEpoch;
     return GlideSessionInfo(
       id: to,
       ticket: "",
-      from: from,
       to: to,
       title: title,
       unread: 0,
@@ -67,7 +63,6 @@ class GlideSessionInfo {
   GlideSessionInfo copyWith({
     String? id,
     String? ticket,
-    String? from,
     String? to,
     String? title,
     num? unread,
@@ -81,7 +76,6 @@ class GlideSessionInfo {
     return GlideSessionInfo(
       id: id ?? this.id,
       ticket: ticket ?? this.ticket,
-      from: from ?? this.from,
       to: to ?? this.to,
       title: title ?? this.title,
       unread: unread ?? this.unread,
@@ -92,6 +86,11 @@ class GlideSessionInfo {
       lastReadSeq: lastReadSeq ?? this.lastReadSeq,
       type: type ?? this.type,
     );
+  }
+
+  @override
+  String toString() {
+    return 'GlideSessionInfo{id: $id, to: $to, title: $title, unread: $unread, ticket: $ticket, lastMessage: $lastMessage, createAt: $createAt, updateAt: $updateAt, lastReadAt: $lastReadAt, lastReadSeq: $lastReadSeq, type: $type}';
   }
 }
 
@@ -162,15 +161,15 @@ abstract interface class GlideSession {
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
-  factory GlideSessionInternal(String from, String to, GlideWsClient ws,
+  factory GlideSessionInternal(String myId, String to, GlideWsClient ws,
           SessionListCache sessionListCache, SessionType type) =>
       GlideSessionInternal.create(
-          GlideSessionInfo.create2(from, to, type), sessionListCache, ws);
+          GlideSessionInfo.create2(to, type), myId, sessionListCache, ws);
 
-  factory GlideSessionInternal.create(GlideSessionInfo info,
+  factory GlideSessionInternal.create(GlideSessionInfo info, String myId,
           SessionListCache sessionListCache, GlideWsClient ws) =>
       _GlideSessionInternalImpl(
-          info, GlideMessageMemoryCache(), sessionListCache, ws);
+          myId, info, GlideMessageMemoryCache(), sessionListCache, ws);
 
   Stream<String> onMessage(GlideChatMessage message);
 }
@@ -182,8 +181,10 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   final GlideWsClient ws;
   final StreamController<GlideChatMessage> _messageSc =
       StreamController.broadcast();
+  final String myId;
 
-  _GlideSessionInternalImpl(this.i, this.cache, this.sessionListCache, this.ws);
+  _GlideSessionInternalImpl(
+      this.myId, this.i, this.cache, this.sessionListCache, this.ws);
 
   @override
   Stream<String> onMessage(GlideChatMessage message) async* {
@@ -235,7 +236,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
     final cm = GlideChatMessage(
       mid: DateTime.now().millisecondsSinceEpoch,
       seq: 0,
-      from: info.from,
+      from: myId,
       to: info.id,
       type: 1,
       content: content,
