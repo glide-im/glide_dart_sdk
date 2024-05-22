@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:glide_dart_sdk/src/context.dart';
 import 'package:glide_dart_sdk/src/messages.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
+import 'package:rxdart/rxdart.dart';
 
+import 'errors.dart';
 import 'session.dart';
-import 'ws/ws_im_client.dart';
 
 typedef ShouldCountUnread = bool Function(GlideSessionInfo);
 
@@ -93,12 +95,9 @@ abstract interface class SessionManager {
 }
 
 abstract interface class SessionManagerInternal extends SessionManager {
-  factory SessionManagerInternal(GlideWsClient ws) =>
-      _SessionManagerImpl(cache: SessionListMemoryCache(), ws: ws);
+  factory SessionManagerInternal(Context ctx) => _SessionManagerImpl(ctx);
 
   Stream<String> init();
-
-  void setMyId(String id);
 
   Stream<String> onMessage(
       ProtocolMessage message, ShouldCountUnread shouldCountUnread);
@@ -106,38 +105,39 @@ abstract interface class SessionManagerInternal extends SessionManager {
 
 class _SessionManagerImpl implements SessionManagerInternal {
   final Map<String, GlideSessionInternal> id2session = {};
-  final SessionListCache cache;
-  final GlideWsClient ws;
-  late String myId;
+  Context ctx;
   bool initialized = false;
-  final StreamController<SessionEvent> eventController =
+  final StreamController<SessionEvent> eventControll1er =
       StreamController.broadcast(onCancel: () {}, onListen: () {});
 
-  _SessionManagerImpl({required this.cache, required this.ws});
+  final String source = "session-manager";
 
-  @override
-  void setMyId(String id) {
-    myId = id;
-  }
+  _SessionManagerImpl(this.ctx);
 
   @override
   Stream<String> init() async* {
-    final cachedSession = await cache.getSessions();
+    final cachedSession = await ctx.sessionCache.getSessions();
     await Future.delayed(Duration(seconds: 1));
     for (var info in cachedSession) {
-      id2session[info.id] = GlideSessionInternal.create(info, myId, cache, ws);
+      id2session[info.id] = GlideSessionInternal.create(info, ctx);
     }
     initialized = true;
   }
 
   @override
   Future<GlideSession> create(String to, SessionType type) async {
-    final session = GlideSessionInternal(myId, to, ws, cache, type);
+    final session = GlideSessionInternal(ctx, to, type);
+    if (id2session.containsKey(to)) {
+      throw GlideException(message: "session already exists");
+    }
     id2session[session.info.id] = session;
-    await cache.addSession(session.info);
-    eventController.add(SessionEvent(
-      type: SessionEventType.sessionAdded,
-      id: session.info.id,
+    await ctx.sessionCache.addSession(session.info);
+    ctx.event.add(GlobalEvent(
+      source: source,
+      event: SessionEvent(
+        type: SessionEventType.sessionAdded,
+        id: session.info.id,
+      ),
     ));
     return session;
   }
@@ -150,11 +150,11 @@ class _SessionManagerImpl implements SessionManagerInternal {
       return;
     }
     GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
-    final target = cm.to == myId ? cm.from : cm.to;
+    final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
 
     if (session == null) {
-      final type = cm.to != myId ? SessionType.channel : SessionType.chat;
+      final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
       session = await create(target, type) as GlideSessionInternal;
       yield "session created ${session.info.id}";
     }
@@ -162,15 +162,23 @@ class _SessionManagerImpl implements SessionManagerInternal {
     if (shouldCountUnread(session.info)) {
       session.addUnread(1);
     }
-    eventController.add(SessionEvent(
-      type: SessionEventType.sessionUpdated,
-      id: session.info.id,
+    ctx.event.add(GlobalEvent(
+      source: source,
+      event: SessionEvent(
+        type: SessionEventType.sessionUpdated,
+        id: session.info.id,
+      ),
     ));
   }
 
   @override
   Stream<SessionEvent> events() {
-    return eventController.stream;
+    return ctx.event.stream.mapNotNull((e) {
+      if (e.event is SessionEvent) {
+        return e.event;
+      }
+      return null;
+    });
   }
 
   @override

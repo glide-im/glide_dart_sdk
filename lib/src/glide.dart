@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:glide_dart_sdk/src/api/bean/auth_bean.dart';
 import 'package:glide_dart_sdk/src/api/http.dart';
+import 'package:glide_dart_sdk/src/context.dart';
+import 'package:glide_dart_sdk/src/session.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
@@ -24,19 +26,24 @@ class Glide {
   final tag = "Glide";
   final _cli = GlideWsClient();
   dynamic _credential;
-  String _uid = "";
   late SessionManagerInternal _sessions;
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
   ShouldCountUnread? shouldCountUnread;
+  late Context _context;
 
   GlideState state = GlideState.init;
 
   Glide() {
-    _sessions = SessionManagerInternal(_cli);
+    _context = Context(
+      ws: _cli,
+      sessionCache: SessionListMemoryCache(),
+      messageCache: GlideMessageMemoryCache(),
+      myId: "",
+    );
+    _sessions = SessionManagerInternal(_context);
   }
 
-  String? uid() => _uid;
-
+  String? uid() => _context.myId;
 
   Future init() async {
     states().listen((event) {
@@ -65,7 +72,7 @@ class Glide {
       }
     });
     _cli.messageStream().listen(
-          (event) {
+      (event) {
         _handleMessage(event);
       },
       onError: (e) {},
@@ -78,7 +85,7 @@ class Glide {
   SessionManager get sessionManager => _sessions;
 
   Future logout() async {
-    _uid = "";
+    _context.myId = "";
     _credential = null;
     await _cli.close();
   }
@@ -101,10 +108,9 @@ class Glide {
 
   Future _login(Future<AuthBean> api) async {
     final resp = await api;
-    _uid = resp.uid!.toString();
+    _context.myId = resp.uid!.toString();
     _credential = resp.credential!.toJson();
     Http.setToken(resp.token!);
-    _sessions.setMyId(_uid);
     await _cli.request(Action.auth, _credential, needAuth: false);
     _stateSc.add(GlideState.connected);
     _cli.setAuthenticationCompleted();
@@ -120,8 +126,8 @@ class Glide {
       throw "not authenticated yet";
     }
     try {
-      final result = await client.request(
-          Action.auth, _credential, needAuth: false);
+      final result =
+          await client.request(Action.auth, _credential, needAuth: false);
     } catch (e) {
       client.close();
       throw "authenticated failed";
@@ -135,8 +141,8 @@ class Glide {
       case Action.messageGroup:
       case Action.messageChat:
       case Action.messageGroupNotify:
-        _sessions.onMessage(message, shouldCountUnread ?? (s) => true).listen((
-            event) {
+        _sessions.onMessage(message, shouldCountUnread ?? (s) => true).listen(
+            (event) {
           Logger.info(tag, "[message-${message.hashCode}] $event");
         }, onError: (e) {
           Logger.err(tag, e);

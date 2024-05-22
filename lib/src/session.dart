@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:glide_dart_sdk/src/api/session_api.dart';
 import 'package:glide_dart_sdk/src/session_manager.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
-import 'package:glide_dart_sdk/src/ws/ws_im_client.dart';
+import 'package:rxdart/rxdart.dart';
 
+import 'context.dart';
 import 'messages.dart';
 
 enum SessionType {
@@ -99,6 +100,8 @@ abstract interface class GlideMessageCache {
 
   Future<void> addMessage(String sessionId, GlideChatMessage message);
 
+  Future<bool> hasMessage(num mid);
+
   Future<void> removeMessage(String sessionId, String id);
 
   Future<void> updateMessage(String sessionId, GlideChatMessage message);
@@ -108,6 +111,7 @@ abstract interface class GlideMessageCache {
 
 class GlideMessageMemoryCache implements GlideMessageCache {
   final Map<String, List<GlideChatMessage>> _cache = {};
+  final Set<num> mids = {};
 
   @override
   Future<void> addMessage(String sessionId, GlideChatMessage message) async {
@@ -115,6 +119,12 @@ class GlideMessageMemoryCache implements GlideMessageCache {
       _cache[sessionId] = [];
     }
     _cache[sessionId]?.add(message);
+    mids.add(message.mid);
+  }
+
+  @override
+  Future<bool> hasMessage(num mid) async {
+    return mids.contains(mid);
   }
 
   @override
@@ -161,42 +171,43 @@ abstract interface class GlideSession {
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
-  factory GlideSessionInternal(String myId, String to, GlideWsClient ws,
-          SessionListCache sessionListCache, SessionType type) =>
-      GlideSessionInternal.create(
-          GlideSessionInfo.create2(to, type), myId, sessionListCache, ws);
+  factory GlideSessionInternal(
+    Context ctx,
+    String to,
+    SessionType type,
+  ) =>
+      GlideSessionInternal.create(GlideSessionInfo.create2(to, type), ctx);
 
-  factory GlideSessionInternal.create(GlideSessionInfo info, String myId,
-          SessionListCache sessionListCache, GlideWsClient ws) =>
-      _GlideSessionInternalImpl(
-          myId, info, GlideMessageMemoryCache(), sessionListCache, ws);
+  factory GlideSessionInternal.create(GlideSessionInfo info, Context ctx) =>
+      _GlideSessionInternalImpl(info, ctx);
 
   Stream<String> onMessage(GlideChatMessage message);
 }
 
 class _GlideSessionInternalImpl implements GlideSessionInternal {
   GlideSessionInfo i;
-  final GlideMessageCache cache;
-  final SessionListCache sessionListCache;
-  final GlideWsClient ws;
-  final StreamController<GlideChatMessage> _messageSc =
-      StreamController.broadcast();
-  final String myId;
+  final Context ctx;
 
-  _GlideSessionInternalImpl(
-      this.myId, this.i, this.cache, this.sessionListCache, this.ws);
+  String get source => "session-${i.id}";
+
+  _GlideSessionInternalImpl(this.i, this.ctx);
 
   @override
   Stream<String> onMessage(GlideChatMessage message) async* {
     yield "session_${i.id} received";
-    await cache.addMessage(i.id, message);
+    if (await ctx.messageCache.hasMessage(message.mid)) {
+      await ctx.messageCache.updateMessage(i.id, message);
+      yield "message exist";
+      return;
+    }
+    await ctx.messageCache.addMessage(i.id, message);
     i = i.copyWith(
       lastMessage: message.content.toString(),
       updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
     yield "session updated";
-    _messageSc.add(message);
+    ctx.event.add(GlobalEvent(source: source, event: message));
   }
 
   @override
@@ -218,12 +229,18 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
 
   @override
   Future<List<GlideChatMessage>> history() async {
-    return await cache.getMessages(i.id);
+    return await ctx.messageCache.getMessages(i.id);
   }
 
   @override
   Stream<GlideChatMessage> messages() {
-    return _messageSc.stream;
+    return ctx.event.stream.mapNotNull((event) {
+      final ev = event.event;
+      if (event.source == source && ev is GlideChatMessage) {
+        return ev;
+      }
+      return null;
+    });
   }
 
   @override
@@ -236,7 +253,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
     final cm = GlideChatMessage(
       mid: DateTime.now().millisecondsSinceEpoch,
       seq: 0,
-      from: myId,
+      from: ctx.myId,
       to: info.id,
       type: 1,
       content: content,
@@ -250,13 +267,27 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
     final action = info.type == SessionType.channel
         ? Action.messageGroup
         : Action.messageChat;
-    await ws.sendChatMessage(action, cm, ticket).execute();
+    await ctx.ws.sendChatMessage(action, cm, ticket).execute();
+    ctx.messageCache.addMessage(i.id, cm);
+    ctx.event.add(GlobalEvent(source: source, event: cm));
+    i = i.copyWith(
+      lastMessage: cm.content.toString(),
+      updateAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _save();
   }
 
   @override
   GlideSessionInfo get info => i;
 
   Future _save() async {
-    await sessionListCache.updateSession(i);
+    await ctx.sessionCache.updateSession(i);
+    ctx.event.add(GlobalEvent(
+      source: source,
+      event: SessionEvent(
+        id: info.id,
+        type: SessionEventType.sessionUpdated,
+      ),
+    ));
   }
 }
