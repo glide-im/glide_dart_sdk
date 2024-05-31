@@ -11,6 +11,7 @@ import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
 import 'api/auth_api.dart';
 import 'config.dart';
+import 'messages.dart';
 import 'session_manager.dart';
 import 'ws/protocol.dart';
 import 'ws/ws_im_client.dart';
@@ -94,19 +95,19 @@ class Glide {
     Logger.setSink(sink);
   }
 
-  Future tokenLogin(String token) async {
-    await _login(AuthApi.loginToken(token));
+  Future<AuthBean> tokenLogin(String token) async {
+    return await _login(AuthApi.loginToken(token));
   }
 
-  Future guestLogin(String avatar, String nickname) async {
-    await _login(AuthApi.loginGuest(nickname, avatar));
+  Future<AuthBean> guestLogin(String avatar, String nickname) async {
+    return await _login(AuthApi.loginGuest(nickname, avatar));
   }
 
-  Future login(String account, String password) async {
-    await _login(AuthApi.loginPassword(account, password));
+  Future<AuthBean> login(String account, String password) async {
+    return await _login(AuthApi.loginPassword(account, password));
   }
 
-  Future _login(Future<AuthBean> api) async {
+  Future<AuthBean> _login(Future<AuthBean> api) async {
     final resp = await api;
     _context.myId = resp.uid!.toString();
     _credential = resp.credential!.toJson();
@@ -114,6 +115,7 @@ class Glide {
     await _cli.request(Action.auth, _credential, needAuth: false);
     _stateSc.add(GlideState.connected);
     _cli.setAuthenticationCompleted();
+    return resp;
   }
 
   Future _connectFn(WsConnection client) async {
@@ -141,12 +143,17 @@ class Glide {
       case Action.messageGroup:
       case Action.messageChat:
       case Action.messageGroupNotify:
-        _sessions.onMessage(message, shouldCountUnread ?? (s) => true).listen(
-            (event) {
-          Logger.info(tag, "[message-${message.hashCode}] $event");
-        }, onError: (e) {
-          Logger.err(tag, e);
-        });
+        _sessions.onMessage(message, _shouldCountUnread).listen(
+          (event) {
+            Logger.info(tag, "[message-${message.hashCode}] $event");
+          },
+          onError: (e) {
+            Logger.err(tag, e);
+          },
+          onDone: () {
+            Logger.info(tag, "[message-${message.hashCode}] handled done");
+          },
+        );
         break;
       case Action.kickout:
         logout().ignore();
@@ -154,5 +161,13 @@ class Glide {
       default:
         break;
     }
+  }
+
+  bool _shouldCountUnread(
+      GlideSessionInfo sessionInfo, GlideChatMessage message) {
+    if (shouldCountUnread != null) {
+      return _shouldCountUnread(sessionInfo, message);
+    }
+    return true;
   }
 }

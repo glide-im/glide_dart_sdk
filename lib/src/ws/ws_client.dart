@@ -286,7 +286,7 @@ class WsClientImpl implements WsClient {
               "stop retry connect, code: ${error.osError?.errorCode}, msg: ${error.osError?.message}");
           throw error;
         } else {
-          Logger.debug(_tag, "connect failed:$_state, $error");
+          Logger.debug(_tag, "connect failed: $error");
         }
         // 重试 10 次
         if (retry > 10) {

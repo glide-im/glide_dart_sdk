@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:glide_dart_sdk/src/utils/logger.dart';
+// import 'package:web_socket_channel/html.dart';
 import 'package:web_socket_channel/io.dart';
-import 'package:web_socket_channel/status.dart' as status;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 typedef Disposable = void Function();
 
@@ -61,7 +62,7 @@ class WsException implements Exception {
 class _Ws implements WsConnection {
   static const _tag = "Ws";
 
-  late IOWebSocketChannel _ws;
+  late WebSocketChannel _ws;
   String _url = "";
   bool _initialized = false;
   final JsonEncoder _jsonEncoder = const JsonEncoder();
@@ -111,6 +112,15 @@ class _Ws implements WsConnection {
     _newState(WebSocket.connecting);
     Logger.debug(_tag, "connecting to $_url");
 
+    try {
+      Platform.version;
+    } on UnsupportedError {
+      Logger.debug(_tag, "use html websocket");
+      return await _connectWeb(timeout);
+    } catch (e) {
+      rethrow;
+    }
+
     return WebSocket.connect(_url).timeout(timeout).then((value) {
       Logger.debug(_tag, "ws connected");
       _ws = IOWebSocketChannel(value);
@@ -122,6 +132,22 @@ class _Ws implements WsConnection {
       currentState = WebSocket.closed;
       throw e;
     });
+  }
+
+  Future<WsConnection> _connectWeb(Duration timeout) async {
+    try {
+      throw UnimplementedError("not implemented");
+      // final ch = HtmlWebSocketChannel.connect(_url);
+      // _ws = ch;
+      // _ws.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
+      // await ch.ready.timeout(timeout);
+      _initialized = true;
+      _newState(WebSocket.open);
+    } catch (e) {
+      currentState = WebSocket.closed;
+      rethrow;
+    }
+    return this;
   }
 
   @override

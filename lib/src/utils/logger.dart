@@ -43,7 +43,7 @@ class Logger {
     }
     final t = DateTime.now().toIso8601String();
     final l = '$level/$tag: $message';
-    stdout.writeln(l);
+    // stdout.writeln(l);
     _sink?.writeln(l);
   }
 

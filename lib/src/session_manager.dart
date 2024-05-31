@@ -8,7 +8,7 @@ import 'package:rxdart/rxdart.dart';
 import 'errors.dart';
 import 'session.dart';
 
-typedef ShouldCountUnread = bool Function(GlideSessionInfo);
+typedef ShouldCountUnread = bool Function(GlideSessionInfo, GlideChatMessage);
 
 abstract interface class SessionListCache {
   Future<List<GlideSessionInfo>> getSessions();
@@ -159,7 +159,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
       yield "session created ${session.info.id}";
     }
     yield* session.onMessage(cm);
-    if (shouldCountUnread(session.info)) {
+    if (shouldCountUnread(session.info, cm)) {
       session.addUnread(1);
     }
     ctx.event.add(GlobalEvent(
