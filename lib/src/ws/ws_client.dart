@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:glide_dart_sdk/src/errors.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -217,7 +218,8 @@ class WsClientImpl implements WsClient {
     bool needAuth = false,
   }) {
     MessageTask<T> task = MessageTask();
-    task.addStep((_) => _whenAvailable(awaitConnect, needAuth));
+    task.addStep((_) =>
+        _whenAvailable(awaitConnect, needAuth, const Duration(seconds: 5)));
     task.addStep((_) => _wsConnection.send(msg, serializeToJson));
     return task;
   }
@@ -225,7 +227,7 @@ class WsClientImpl implements WsClient {
   /// 如果当前已连接, 则直接回调 Future, 否则等待连接成功并登录后返回.
   ///
   /// [authentication] 是否需要等待认证
-  Future<void> _waitForAvailable(bool authentication) {
+  Future<void> _waitForAvailable(bool authentication, Duration timeout) {
     if (_state == WsClientState.connected) {
       if (!_authed && authentication) {
         return _authentication();
@@ -240,9 +242,18 @@ class WsClientImpl implements WsClient {
     return Stream.periodic(const Duration(seconds: 1), (i) {
       return _state == WsClientState.connected &&
           (!authentication || (authentication && _authed));
-    }).firstWhere((opened) => opened).then((value) {
-      Logger.debug(_tag, "ws available");
-    });
+    })
+        .firstWhere((opened) => opened)
+        .then((value) {
+          Logger.debug(_tag, "ws available");
+        })
+        .timeout(timeout)
+        .catchError((e) {
+          if (e is TimeoutException) {
+            throw GlideException(message: "ws not available");
+          }
+          throw e;
+        });
   }
 
   /// 尝试连接到服务器
@@ -297,9 +308,9 @@ class WsClientImpl implements WsClient {
       }).first;
     }).then((_) {
       if (authNeeded) {
-        _authentication();
+        return _authentication();
       }
-    }).catchError((e) {
+    }).catchError((e) async {
       Logger.debug(_tag, "reconnect error: $e");
       _stateChange(WsClientState.disconnected);
     });
@@ -329,9 +340,9 @@ class WsClientImpl implements WsClient {
     _stateSc.add(state);
   }
 
-  Future _whenAvailable(bool needConnect, bool needAuth, [int timeout = 3600]) {
+  Future _whenAvailable(bool needConnect, bool needAuth, Duration timeout) {
     if (needConnect) {
-      return _waitForAvailable(needAuth).timeout(Duration(seconds: timeout));
+      return _waitForAvailable(needAuth, timeout);
     }
     return Future.value();
   }

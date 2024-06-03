@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:glide_dart_sdk/src/api/bean/auth_bean.dart';
 import 'package:glide_dart_sdk/src/api/http.dart';
 import 'package:glide_dart_sdk/src/context.dart';
+import 'package:glide_dart_sdk/src/errors.dart';
 import 'package:glide_dart_sdk/src/session.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
@@ -125,14 +126,13 @@ class Glide {
   Future _authenticationFn(GlideWsClient client) async {
     if (_credential == null) {
       client.close();
-      throw "not authenticated yet";
+      throw GlideException.unauthorized;
     }
     try {
-      final result =
-          await client.request(Action.auth, _credential, needAuth: false);
+      await client.request(Action.auth, _credential, needAuth: false);
     } catch (e) {
       client.close();
-      throw "authenticated failed";
+      throw GlideException.authorizeFailed;
     }
     _stateSc.add(GlideState.connected);
     client.setAuthenticationCompleted();
@@ -166,7 +166,7 @@ class Glide {
   bool _shouldCountUnread(
       GlideSessionInfo sessionInfo, GlideChatMessage message) {
     if (shouldCountUnread != null) {
-      return _shouldCountUnread(sessionInfo, message);
+      return shouldCountUnread!.call(sessionInfo, message);
     }
     return true;
   }
