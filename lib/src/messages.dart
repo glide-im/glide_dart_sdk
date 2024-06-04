@@ -21,11 +21,11 @@ class GlideChatMessage {
     return GlideChatMessage(
       mid: json['mid'] ?? 0,
       seq: json['seq'] ?? 0,
-      from: json['from'],
-      to: json['to'],
+      from: json['from'] ?? '',
+      to: json['to'] ?? '',
       type: json['type'],
       content: json['content'],
-      sendAt: json['sendAt'],
+      sendAt: json['sendAt'] ?? 0,
     );
   }
 
@@ -38,6 +38,27 @@ class GlideChatMessage {
     map['type'] = type;
     map['content'] = content;
     map['sendAt'] = sendAt;
+    return map;
+  }
+}
+
+class GlideAckMessage {
+  final num mid;
+  final String from;
+
+  GlideAckMessage({required this.mid, required this.from});
+
+  factory GlideAckMessage.fromJson(Map<String, dynamic> json) {
+    return GlideAckMessage(
+      mid: json['mid'] ?? 0,
+      from: json['from'] ?? "",
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{};
+    map['mid'] = mid;
+    map['from'] = from;
     return map;
   }
 }

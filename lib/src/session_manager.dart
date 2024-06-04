@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:glide_dart_sdk/src/context.dart';
 import 'package:glide_dart_sdk/src/messages.dart';
+import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'errors.dart';
 import 'session.dart';
-
-typedef ShouldCountUnread = bool Function(GlideSessionInfo, GlideChatMessage);
 
 abstract interface class SessionListCache {
   Future<List<GlideSessionInfo>> getSessions();
@@ -99,16 +98,17 @@ abstract interface class SessionManagerInternal extends SessionManager {
 
   Stream<String> init();
 
-  Stream<String> onMessage(
-      ProtocolMessage message, ShouldCountUnread shouldCountUnread);
+  Stream<String> onMessage(Action action, GlideChatMessage message);
+
+  Stream<String> onClientMessage(Action action, GlideChatMessage message);
+
+  void onAck(Action action, GlideAckMessage message);
 }
 
 class _SessionManagerImpl implements SessionManagerInternal {
   final Map<String, GlideSessionInternal> id2session = {};
   Context ctx;
   bool initialized = false;
-  final StreamController<SessionEvent> eventControll1er =
-      StreamController.broadcast(onCancel: () {}, onListen: () {});
 
   final String source = "session-manager";
 
@@ -126,7 +126,12 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Future<GlideSession> create(String to, SessionType type) async {
-    final session = GlideSessionInternal(ctx, to, type);
+    GlideSessionInfo? si = GlideSessionInfo.create2(to, type);
+    si = ctx.sessionEventInterceptor.onSessionCreate(si);
+    if (si == null) {
+      throw GlideException(message: "session create rejected");
+    }
+    GlideSessionInternal session = GlideSessionInternal.create(si, ctx);
     if (id2session.containsKey(to)) {
       throw GlideException(message: "session already exists");
     }
@@ -143,25 +148,39 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Stream<String> onMessage(
-      ProtocolMessage message, ShouldCountUnread shouldCountUnread) async* {
-    if (message.action == Action.messageGroupNotify) {
+  Stream<String> onMessage(Action action, GlideChatMessage cm) async* {
+    if (action == Action.messageGroupNotify) {
       yield "$source message ignored";
       return;
     }
-    GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
     final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
+
+    ctx.ws
+        .send(ProtocolMessage.ackRequest(cm.from, cm.mid))
+        .execute()
+        .onError((error, stackTrace) {
+      Logger.err("message ack error", error);
+    });
+    yield "$source message acked";
 
     if (session == null) {
       final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
       session = await create(target, type) as GlideSessionInternal;
       yield "$source session created ${session.info.id}";
     }
-    yield* session.onMessage(cm);
-    if (shouldCountUnread(session.info, cm)) {
-      session.addUnread(1);
+    final ncm =
+        ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
+    if (ncm == null) {
+      yield "message intercepted";
+      return;
     }
+    yield* session.onMessage(ncm);
+
+    final increment =
+        ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
+    session.addUnread(increment);
+
     yield "$source notify update";
     ctx.event.add(GlobalEvent(
       source: source,
@@ -170,6 +189,21 @@ class _SessionManagerImpl implements SessionManagerInternal {
         id: session.info.id,
       ),
     ));
+  }
+
+  @override
+  Stream<String> onClientMessage(Action action, GlideChatMessage message) async* {
+    yield "$source cli message ignored";
+
+  }
+
+  @override
+  void onAck(Action action, GlideAckMessage message) {
+    final session = id2session[message.from];
+    if (session == null) {
+      Logger.err(source, "session not found: ${message.from}");
+    }
+    session?.onAck(action, message);
   }
 
   @override

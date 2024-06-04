@@ -45,6 +45,7 @@ class GlideSessionInfo {
 
   factory GlideSessionInfo.create(String to, String title, SessionType type) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    assert(to.isNotEmpty);
     return GlideSessionInfo(
       id: to,
       ticket: "",
@@ -92,6 +93,34 @@ class GlideSessionInfo {
   String toString() {
     return 'GlideSessionInfo{id: $id, to: $to, title: $title, unread: $unread, ticket: $ticket, lastMessage: $lastMessage, createAt: $createAt, updateAt: $updateAt, lastReadAt: $lastReadAt, lastReadSeq: $lastReadSeq, type: $type}';
   }
+}
+
+abstract class SessionEventInterceptor {
+  int onIncrementUnread(GlideSessionInfo si, GlideChatMessage cm);
+
+  GlideChatMessage? onInterceptMessage(
+      GlideSessionInfo si, GlideChatMessage cm);
+
+  GlideSessionInfo? onSessionCreate(GlideSessionInfo si);
+}
+
+class DefaultSessionEventInterceptor implements SessionEventInterceptor {
+  SessionEventInterceptor? wrap;
+
+  @override
+  int onIncrementUnread(GlideSessionInfo si, GlideChatMessage cm) =>
+      wrap?.onIncrementUnread(si, cm) ?? 0;
+
+  @override
+  GlideChatMessage? onInterceptMessage(
+    GlideSessionInfo si,
+    GlideChatMessage cm,
+  ) =>
+      wrap?.onInterceptMessage(si, cm) ?? cm;
+
+  @override
+  GlideSessionInfo? onSessionCreate(GlideSessionInfo si) =>
+      wrap?.onSessionCreate(si) ?? si;
 }
 
 abstract interface class GlideMessageCache {
@@ -154,6 +183,8 @@ class GlideMessageMemoryCache implements GlideMessageCache {
 abstract interface class GlideSession {
   GlideSessionInfo get info;
 
+  Future<void> updateInfo(GlideSessionInfo info);
+
   Future clearUnread();
 
   Future addUnread(int count);
@@ -181,6 +212,15 @@ abstract interface class GlideSessionInternal extends GlideSession {
       _GlideSessionInternalImpl(info, ctx);
 
   Stream<String> onMessage(GlideChatMessage message);
+
+  void onAck(Action action, GlideAckMessage message);
+}
+
+class _AckEvent {
+  final Action action;
+  final GlideAckMessage message;
+
+  _AckEvent({required this.action, required this.message});
 }
 
 class _GlideSessionInternalImpl implements GlideSessionInternal {
@@ -188,6 +228,9 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   final Context ctx;
 
   String get source => "session-${i.id}";
+
+  static final StreamController<_AckEvent> ackEvents =
+      StreamController.broadcast();
 
   _GlideSessionInternalImpl(this.i, this.ctx);
 
@@ -208,6 +251,19 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
     yield "$source message saved";
     ctx.event.add(GlobalEvent(source: source, event: message));
     yield "$source update notified";
+  }
+
+  @override
+  Future<void> updateInfo(GlideSessionInfo info) async {
+    // those fields are not allowed to be updated
+    assert(i.id == info.id && i.to == info.to && i.type == info.type);
+    i = info;
+    await _save();
+  }
+
+  @override
+  void onAck(Action action, GlideAckMessage message) {
+    ackEvents.add(_AckEvent(action: action, message: message));
   }
 
   @override

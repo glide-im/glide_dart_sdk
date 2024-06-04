@@ -12,6 +12,7 @@ class Context {
   GlideMessageCache messageCache;
   String myId;
   GlideApi api;
+  SessionEventInterceptor sessionEventInterceptor;
 
   // global event
   StreamController<GlobalEvent> event = StreamController.broadcast();
@@ -22,6 +23,7 @@ class Context {
     required this.sessionCache,
     required this.messageCache,
     required this.myId,
+    required this.sessionEventInterceptor,
   });
 }
 

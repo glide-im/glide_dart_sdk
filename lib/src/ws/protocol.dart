@@ -3,9 +3,11 @@ enum Action {
   auth("authenticate"),
   ackRequest("ack.request"),
   ackNotify("ack.notify"),
+  ackMessage("ack.message"),
   messageChat("message.chat"),
   messageGroup("message.group"),
   messageGroupNotify("message.group.notify"),
+  messageClient("message.cli"),
   notifySuccess("notify.success"),
   notifyError("notify.error"),
   heartbeat("heartbeat"),
@@ -41,6 +43,16 @@ class ProtocolMessage<T> {
     this.to,
     this.ticket,
   });
+
+  factory ProtocolMessage.ackRequest(String from, num mid) {
+    return ProtocolMessage(
+      action: Action.ackRequest,
+      data: {
+        'from': from,
+        'mid': mid,
+      } as dynamic,
+    );
+  }
 
   factory ProtocolMessage.fromJson(dynamic json) {
     return ProtocolMessage(

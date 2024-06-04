@@ -30,9 +30,9 @@ class Glide {
   dynamic _credential;
   late Context _context;
   late SessionManagerInternal _sessions;
+  final _interceptor = DefaultSessionEventInterceptor();
 
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
-  ShouldCountUnread? shouldCountUnread;
   final GlideApi api = GlideApi();
 
   GlideState state = GlideState.init;
@@ -44,8 +44,13 @@ class Glide {
       sessionCache: SessionListMemoryCache(),
       messageCache: GlideMessageMemoryCache(),
       myId: "",
+      sessionEventInterceptor: _interceptor,
     );
     _sessions = SessionManagerInternal(_context);
+  }
+
+  void setSessionEventInterceptor(SessionEventInterceptor interceptor) {
+    _interceptor.wrap = interceptor;
   }
 
   String? uid() => _context.myId;
@@ -61,6 +66,7 @@ class Glide {
     _cli.setConnectFunc(_connectFn);
     _cli.setAuthFunc(_authenticationFn);
     _cli.subscriptionState((state) {
+      Logger.info(tag, "ws client state changed: $state");
       switch (state) {
         case WsClientState.known:
           break;
@@ -100,18 +106,18 @@ class Glide {
   }
 
   Future<AuthBean> tokenLogin(String token) async {
-    return await _login(api.auth.loginToken(token));
+    return await _startAuth(api.auth.loginToken(token));
   }
 
   Future<AuthBean> guestLogin(String avatar, String nickname) async {
-    return await _login(api.auth.loginGuest(nickname, avatar));
+    return await _startAuth(api.auth.loginGuest(nickname, avatar));
   }
 
   Future<AuthBean> login(String account, String password) async {
-    return await _login(api.auth.loginPassword(account, password));
+    return await _startAuth(api.auth.loginPassword(account, password));
   }
 
-  Future<AuthBean> _login(Future<AuthBean> api) async {
+  Future<AuthBean> _startAuth(Future<AuthBean> api) async {
     final resp = await api;
     _context.myId = resp.uid!.toString();
     _credential = resp.credential!.toJson();
@@ -143,10 +149,11 @@ class Glide {
 
   void _handleMessage(ProtocolMessage message) {
     switch (message.action) {
-      case Action.messageGroup:
       case Action.messageChat:
+      case Action.messageGroup:
       case Action.messageGroupNotify:
-        _sessions.onMessage(message, _shouldCountUnread).listen(
+        GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
+        _sessions.onMessage(message.action, cm).listen(
           (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
@@ -158,19 +165,22 @@ class Glide {
           },
         );
         break;
+      case Action.messageClient:
+        final cm = GlideChatMessage.fromJson(message.data);
+        _sessions.onClientMessage(message.action, cm).listen((event) {
+          //
+        });
+        break;
+      case Action.ackNotify:
+      case Action.ackMessage:
+        final ack = GlideAckMessage.fromJson(message.data);
+        _sessions.onAck(message.action, ack);
+        break;
       case Action.kickout:
         logout().ignore();
         break;
       default:
         break;
     }
-  }
-
-  bool _shouldCountUnread(
-      GlideSessionInfo sessionInfo, GlideChatMessage message) {
-    if (shouldCountUnread != null) {
-      return shouldCountUnread!.call(sessionInfo, message);
-    }
-    return true;
   }
 }
