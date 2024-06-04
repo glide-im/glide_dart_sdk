@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:glide_dart_sdk/src/api/session_api.dart';
 import 'package:glide_dart_sdk/src/session_manager.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
@@ -194,10 +193,10 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
 
   @override
   Stream<String> onMessage(GlideChatMessage message) async* {
-    yield "session_${i.id} received";
+    yield "$source message received";
     if (await ctx.messageCache.hasMessage(message.mid)) {
       await ctx.messageCache.updateMessage(i.id, message);
-      yield "message exist";
+      yield "$source message exist";
       return;
     }
     await ctx.messageCache.addMessage(i.id, message);
@@ -206,8 +205,9 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
       updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
-    yield "session updated";
+    yield "$source message saved";
     ctx.event.add(GlobalEvent(source: source, event: message));
+    yield "$source update notified";
   }
 
   @override
@@ -261,7 +261,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
     );
     String ticket = info.ticket;
     if (ticket.isEmpty) {
-      final bean = await SessionApi.getTicket(info.to);
+      final bean = await ctx.api.session.getTicket(info.to);
       ticket = bean.ticket;
     }
     final action = info.type == SessionType.channel

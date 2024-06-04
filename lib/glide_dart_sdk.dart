@@ -7,3 +7,4 @@ export 'src/glide.dart';
 export 'src/session.dart';
 export 'src/session_manager.dart';
 export 'src/messages.dart';
+export 'src/errors.dart';

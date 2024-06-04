@@ -6,7 +6,7 @@ void main() {
   Http.init("");
 
   test("test guest login", () async {
-    final res = await AuthApi.loginGuest("nickname", "avatar");
+    final res = await AuthApi().loginGuest("nickname", "avatar");
     print(res);
   });
 }

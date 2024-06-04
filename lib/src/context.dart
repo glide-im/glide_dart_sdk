@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:glide_dart_sdk/src/api/apis.dart';
+
 import 'session.dart';
 import 'session_manager.dart';
 import 'ws/ws_im_client.dart';
@@ -9,11 +11,13 @@ class Context {
   SessionListCache sessionCache;
   GlideMessageCache messageCache;
   String myId;
+  GlideApi api;
 
   // global event
   StreamController<GlobalEvent> event = StreamController.broadcast();
 
   Context({
+    required this.api,
     required this.ws,
     required this.sessionCache,
     required this.messageCache,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:glide_dart_sdk/src/api/apis.dart';
 import 'package:glide_dart_sdk/src/api/bean/auth_bean.dart';
 import 'package:glide_dart_sdk/src/api/http.dart';
 import 'package:glide_dart_sdk/src/context.dart';
@@ -10,7 +11,6 @@ import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
-import 'api/auth_api.dart';
 import 'config.dart';
 import 'messages.dart';
 import 'session_manager.dart';
@@ -28,15 +28,18 @@ class Glide {
   final tag = "Glide";
   final _cli = GlideWsClient();
   dynamic _credential;
+  late Context _context;
   late SessionManagerInternal _sessions;
+
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
   ShouldCountUnread? shouldCountUnread;
-  late Context _context;
+  final GlideApi api = GlideApi();
 
   GlideState state = GlideState.init;
 
   Glide() {
     _context = Context(
+      api: api,
       ws: _cli,
       sessionCache: SessionListMemoryCache(),
       messageCache: GlideMessageMemoryCache(),
@@ -97,15 +100,15 @@ class Glide {
   }
 
   Future<AuthBean> tokenLogin(String token) async {
-    return await _login(AuthApi.loginToken(token));
+    return await _login(api.auth.loginToken(token));
   }
 
   Future<AuthBean> guestLogin(String avatar, String nickname) async {
-    return await _login(AuthApi.loginGuest(nickname, avatar));
+    return await _login(api.auth.loginGuest(nickname, avatar));
   }
 
   Future<AuthBean> login(String account, String password) async {
-    return await _login(AuthApi.loginPassword(account, password));
+    return await _login(api.auth.loginPassword(account, password));
   }
 
   Future<AuthBean> _login(Future<AuthBean> api) async {

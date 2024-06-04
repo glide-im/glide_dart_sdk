@@ -146,7 +146,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
   Stream<String> onMessage(
       ProtocolMessage message, ShouldCountUnread shouldCountUnread) async* {
     if (message.action == Action.messageGroupNotify) {
-      yield "message ignored";
+      yield "$source message ignored";
       return;
     }
     GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
@@ -156,12 +156,13 @@ class _SessionManagerImpl implements SessionManagerInternal {
     if (session == null) {
       final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
       session = await create(target, type) as GlideSessionInternal;
-      yield "session created ${session.info.id}";
+      yield "$source session created ${session.info.id}";
     }
     yield* session.onMessage(cm);
     if (shouldCountUnread(session.info, cm)) {
       session.addUnread(1);
     }
+    yield "$source notify update";
     ctx.event.add(GlobalEvent(
       source: source,
       event: SessionEvent(

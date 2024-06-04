@@ -230,14 +230,7 @@ class Http {
       throw ApiException(resp.msg, resp.code);
     }
 
-    if (resp.data['obj'] != null && factory != null) {
-      return factory(resp.data['obj']);
-    }
-
-    if (factory != null) {
-      if (resp.data['list'] != null) {
-        return factory(resp.data['list']);
-      }
+    if (resp.data != null && factory != null) {
       return factory(resp.data);
     }
     return resp.data as T;
