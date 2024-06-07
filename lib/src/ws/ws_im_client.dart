@@ -83,6 +83,24 @@ class GlideWsClient extends WsClientImpl {
     return task;
   }
 
+  MessageTask<T> send2<T>(
+    Action action,
+    String to,
+    Map<String, dynamic> data,
+    String ticket,
+  ) {
+    final m = ProtocolMessage(
+      action: action,
+      data: data,
+      seq: 0,
+      ticket: ticket,
+      to: to,
+    );
+    final task = super.send<T>(m.toJson(),
+        serializeToJson: true, awaitConnect: true, needAuth: true);
+    return task;
+  }
+
   @override
   MessageTask<T> send<T>(msg,
       {serializeToJson = true,

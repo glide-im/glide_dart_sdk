@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:glide_dart_sdk/src/session_manager.dart';
+import 'package:glide_dart_sdk/glide_dart_sdk.dart';
+import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'context.dart';
-import 'messages.dart';
 
 enum SessionType {
   chat,
@@ -191,13 +191,22 @@ abstract interface class GlideSession {
 
   Future sendTextMessage(String content);
 
-  void onTypingEvent();
+  // when user is tapping the keyboard, invoke this function to notify target.
+  void sendTypingEvent();
+
+  // when typing state changed, event will be emitted
+  Stream<bool> onTypingChanged();
 
   Future recallMessage(String mid);
 
   Future<List<GlideChatMessage>> history();
 
   Stream<GlideChatMessage> messages();
+
+  // listen to client message received
+  Stream<GlideChatMessage> clientMessage();
+
+  Future sendClientMessage(num type, dynamic message);
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
@@ -214,6 +223,8 @@ abstract interface class GlideSessionInternal extends GlideSession {
   Stream<String> onMessage(GlideChatMessage message);
 
   void onAck(Action action, GlideAckMessage message);
+
+  Stream<String> onClientMessage(GlideChatMessage message);
 }
 
 class _AckEvent {
@@ -223,16 +234,37 @@ class _AckEvent {
   _AckEvent({required this.action, required this.message});
 }
 
+class _ClientMessageEvent {
+  final GlideChatMessage message;
+
+  _ClientMessageEvent({required this.message});
+}
+
 class _GlideSessionInternalImpl implements GlideSessionInternal {
   GlideSessionInfo i;
   final Context ctx;
+  int messageSequence = 1;
+  bool typing = false;
 
   String get source => "session-${i.id}";
 
   static final StreamController<_AckEvent> ackEvents =
       StreamController.broadcast();
 
-  _GlideSessionInternalImpl(this.i, this.ctx);
+  final StreamController<String> sendTypingEventController = StreamController();
+
+  _GlideSessionInternalImpl(this.i, this.ctx) {
+    sendTypingEventController.stream
+        .debounceTime(const Duration(seconds: 1))
+        .listen(
+      (event) {
+        _sendTypingEventInternal();
+      },
+      onError: (e) {
+        Logger.err(source, e);
+      },
+    );
+  }
 
   @override
   Stream<String> onMessage(GlideChatMessage message) async* {
@@ -264,6 +296,47 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   @override
   void onAck(Action action, GlideAckMessage message) {
     ackEvents.add(_AckEvent(action: action, message: message));
+  }
+
+  @override
+  Stream<String> onClientMessage(GlideChatMessage message) async* {
+    ctx.event.add(GlobalEvent(
+      source: source,
+      event: _ClientMessageEvent(message: message),
+    ));
+  }
+
+  @override
+  Stream<GlideChatMessage> clientMessage() {
+    return ctx.event.stream.mapNotNull((event) {
+      final ev = event.event;
+      if (event.source == source && ev is _ClientMessageEvent) {
+        return ev.message;
+      }
+      return null;
+    });
+  }
+
+  @override
+  Future sendClientMessage(num type, dynamic message) async {
+    if (info.ticket.isEmpty) {
+      throw "no ticket";
+    }
+    final task = ctx.ws.send2(
+      Action.messageClient,
+      info.id,
+      GlideChatMessage(
+        mid: 0,
+        seq: 0,
+        from: ctx.myId,
+        to: info.to,
+        type: type,
+        content: message,
+        sendAt: DateTime.now().millisecondsSinceEpoch,
+      ).toJson(),
+      info.ticket,
+    );
+    await task.execute();
   }
 
   @override
@@ -300,18 +373,33 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   }
 
   @override
-  void onTypingEvent() {
-    // TODO: implement onTypingEvent
+  Stream<bool> onTypingChanged() {
+    return clientMessage()
+        .where((event) => event.type == ClientMessageType.typing.type)
+        .map((event) => true)
+        .timeout(Duration(seconds: 2))
+        .onErrorReturn(false)
+        .onErrorResume((error, stackTrace) {
+      if (error is! TimeoutException) {
+        throw error;
+      }
+      return onTypingChanged();
+    }).distinct((p, n) => p == n);
+  }
+
+  @override
+  void sendTypingEvent() async {
+    sendTypingEventController.add("");
   }
 
   @override
   Future sendTextMessage(String content) async {
     final cm = GlideChatMessage(
       mid: DateTime.now().millisecondsSinceEpoch,
-      seq: 0,
+      seq: messageSequence,
       from: ctx.myId,
       to: info.id,
-      type: 1,
+      type: ChatMessageType.text.type,
       content: content,
       sendAt: DateTime.now().millisecondsSinceEpoch,
     );
@@ -324,6 +412,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
         ? Action.messageGroup
         : Action.messageChat;
     await ctx.ws.sendChatMessage(action, cm, ticket).execute();
+    messageSequence++;
     ctx.messageCache.addMessage(i.id, cm);
     ctx.event.add(GlobalEvent(source: source, event: cm));
     i = i.copyWith(
@@ -335,6 +424,23 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
 
   @override
   GlideSessionInfo get info => i;
+
+  Future _sendTypingEventInternal() async {
+    if (info.type != SessionType.chat) {
+      throw "not chat";
+    }
+    if (info.ticket.isEmpty) {
+      throw "no ticket";
+    }
+    await sendClientMessage(
+      ClientMessageType.typing.type,
+      {
+        "from": ctx.myId,
+        "to": info.id,
+        "type": ClientMessageType.typing.type,
+      },
+    );
+  }
 
   Future _save() async {
     await ctx.sessionCache.updateSession(i);

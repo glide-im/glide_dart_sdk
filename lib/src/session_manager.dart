@@ -192,9 +192,14 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Stream<String> onClientMessage(Action action, GlideChatMessage message) async* {
-    yield "$source cli message ignored";
-
+  Stream<String> onClientMessage(Action action, GlideChatMessage cm) async* {
+    final target = cm.to == ctx.myId ? cm.from : cm.to;
+    GlideSessionInternal? session = id2session[target];
+    if (session == null) {
+      yield "$source session not found";
+      return;
+    }
+    session.onClientMessage(cm);
   }
 
   @override

@@ -167,9 +167,14 @@ class Glide {
         break;
       case Action.messageClient:
         final cm = GlideChatMessage.fromJson(message.data);
-        _sessions.onClientMessage(message.action, cm).listen((event) {
-          //
-        });
+        _sessions.onClientMessage(message.action, cm).listen(
+          (event) {
+            Logger.info(tag, "[cli-message-${message.hashCode}] $event");
+          },
+          onError: (e) {
+            Logger.err(tag, e);
+          },
+        );
         break;
       case Action.ackNotify:
       case Action.ackMessage:

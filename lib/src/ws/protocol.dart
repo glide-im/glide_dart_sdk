@@ -27,10 +27,35 @@ enum Action {
   }
 }
 
-class ProtocolMessage<T> {
+// client custom message type
+enum ClientMessageType {
+  stream(10011),
+  typing(10020);
+
+  final num type;
+
+  const ClientMessageType(this.type);
+}
+
+// general message type, persistent
+enum ChatMessageType {
+  text(1),
+  image(2),
+  file(3),
+  location(4),
+  voice(5),
+  video(6),
+  unknown(1);
+
+  final num type;
+
+  const ChatMessageType(this.type);
+}
+
+class ProtocolMessage {
   final num ver;
   final Action action;
-  final T data;
+  final dynamic data;
   final num? seq;
   final String? to;
   final String? ticket;
