@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:glide_dart_sdk/src/messages.dart';
+import 'package:glide_dart_sdk/src/ws/messages.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 

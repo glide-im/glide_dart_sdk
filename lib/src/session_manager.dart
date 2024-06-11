@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:glide_dart_sdk/src/context.dart';
-import 'package:glide_dart_sdk/src/messages.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
+import 'package:glide_dart_sdk/src/ws/messages.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -98,11 +98,11 @@ abstract interface class SessionManagerInternal extends SessionManager {
 
   Stream<String> init();
 
-  Stream<String> onMessage(Action action, GlideChatMessage message);
+  Stream<String> onMessage(Action action, Message message);
 
-  Stream<String> onClientMessage(Action action, GlideChatMessage message);
+  Stream<String> onClientMessage(Action action, Message message);
 
-  void onAck(Action action, GlideAckMessage message);
+  Stream<String> onAck(Action action, GlideAckMessage message);
 }
 
 class _SessionManagerImpl implements SessionManagerInternal {
@@ -148,24 +148,32 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Stream<String> onMessage(Action action, GlideChatMessage cm) async* {
+  Stream<String> onMessage(Action action, Message cm) async* {
     if (action == Action.messageGroupNotify) {
       yield "$source message ignored";
       return;
     }
     final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
+    final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
 
-    ctx.ws
-        .send(ProtocolMessage.ackRequest(cm.from, cm.mid))
-        .execute()
-        .onError((error, stackTrace) {
-      Logger.err("message ack error", error);
-    });
+    if (type == SessionType.chat) {
+      ctx.ws
+          .send(ProtocolMessage.ackRequest(GlideAckMessage(
+            mid: cm.mid,
+            from: ctx.myId,
+            to: target,
+            cliMid: cm.cliMid,
+            seq: cm.seq,
+          )))
+          .execute()
+          .onError((error, stackTrace) {
+        Logger.err("message ack error", error);
+      });
+    }
     yield "$source message acked";
 
     if (session == null) {
-      final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
       session = await create(target, type) as GlideSessionInternal;
       yield "$source session created ${session.info.id}";
     }
@@ -192,24 +200,23 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Stream<String> onClientMessage(Action action, GlideChatMessage cm) async* {
+  Stream<String> onClientMessage(Action action, Message cm) async* {
     final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
     if (session == null) {
       yield "$source session not found";
       return;
     }
-    yield *session.onClientMessage(cm);
+    yield* session.onClientMessage(cm);
   }
 
   @override
-  void onAck(Action action, GlideAckMessage message) {
-    // todo ack mid
-    final session = id2session[message.from];
+  Stream<String> onAck(Action action, GlideAckMessage message) async* {
+    final session = id2session[message.from] ?? id2session[message.to];
     if (session == null) {
-      Logger.err(source, "session not found: ${message.from}");
+      throw "session not found";
     }
-    session?.onAck(action, message);
+    yield* session.onAck(action, message);
   }
 
   @override

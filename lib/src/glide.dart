@@ -12,8 +12,8 @@ import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
 import 'config.dart';
-import 'messages.dart';
 import 'session_manager.dart';
+import 'ws/messages.dart';
 import 'ws/protocol.dart';
 import 'ws/ws_im_client.dart';
 
@@ -152,7 +152,7 @@ class Glide {
       case Action.messageChat:
       case Action.messageGroup:
       case Action.messageGroupNotify:
-        GlideChatMessage cm = GlideChatMessage.fromJson(message.data);
+        Message cm = Message.recv(message.data);
         _sessions.onMessage(message.action, cm).listen(
           (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
@@ -166,7 +166,7 @@ class Glide {
         );
         break;
       case Action.messageClient:
-        final cm = GlideChatMessage.fromJson(message.data);
+        Message cm = Message.recv(message.data);
         _sessions.onClientMessage(message.action, cm).listen(
           (event) {
             Logger.info(tag, "[cli-message-${message.hashCode}] $event");
@@ -178,8 +178,12 @@ class Glide {
         break;
       case Action.ackNotify:
       case Action.ackMessage:
-        final ack = GlideAckMessage.fromJson(message.data);
-        _sessions.onAck(message.action, ack);
+        final ack = GlideAckMessage.fromMap(message.data);
+        _sessions.onAck(message.action, ack).listen((event) {
+          //
+        }, onError: (e) {
+          Logger.err(tag, e);
+        });
         break;
       case Action.kickout:
         logout().ignore();

@@ -1,3 +1,5 @@
+import 'package:glide_dart_sdk/glide_dart_sdk.dart';
+
 enum Action {
   hello("hello"),
   auth("authenticate"),
@@ -69,13 +71,11 @@ class ProtocolMessage {
     this.ticket,
   });
 
-  factory ProtocolMessage.ackRequest(String from, num mid) {
+  factory ProtocolMessage.ackRequest(GlideAckMessage message) {
     return ProtocolMessage(
       action: Action.ackRequest,
-      data: {
-        'from': from,
-        'mid': mid,
-      } as dynamic,
+      data: message.toMap(),
+      to: message.to,
     );
   }
 
