@@ -199,11 +199,12 @@ class _SessionManagerImpl implements SessionManagerInternal {
       yield "$source session not found";
       return;
     }
-    session.onClientMessage(cm);
+    yield *session.onClientMessage(cm);
   }
 
   @override
   void onAck(Action action, GlideAckMessage message) {
+    // todo ack mid
     final session = id2session[message.from];
     if (session == null) {
       Logger.err(source, "session not found: ${message.from}");

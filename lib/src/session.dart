@@ -254,10 +254,9 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   final StreamController<String> sendTypingEventController = StreamController();
 
   _GlideSessionInternalImpl(this.i, this.ctx) {
-    sendTypingEventController.stream
-        .debounceTime(const Duration(seconds: 1))
-        .listen(
+    sendTypingEventController.stream.throttleTime(Duration(seconds: 1)).listen(
       (event) {
+        Logger.info(source, 'send typing event');
         _sendTypingEventInternal();
       },
       onError: (e) {
@@ -319,9 +318,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
 
   @override
   Future sendClientMessage(num type, dynamic message) async {
-    if (info.ticket.isEmpty) {
-      throw "no ticket";
-    }
+    final ticket = await _ticket();
     final task = ctx.ws.send2(
       Action.messageClient,
       info.id,
@@ -334,7 +331,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
         content: message,
         sendAt: DateTime.now().millisecondsSinceEpoch,
       ).toJson(),
-      info.ticket,
+      ticket,
     );
     await task.execute();
   }
@@ -379,12 +376,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
         .map((event) => true)
         .timeout(Duration(seconds: 2))
         .onErrorReturn(false)
-        .onErrorResume((error, stackTrace) {
-      if (error is! TimeoutException) {
-        throw error;
-      }
-      return onTypingChanged();
-    }).distinct((p, n) => p == n);
+        .distinct((p, n) => p == n);
   }
 
   @override
@@ -403,11 +395,7 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
       content: content,
       sendAt: DateTime.now().millisecondsSinceEpoch,
     );
-    String ticket = info.ticket;
-    if (ticket.isEmpty) {
-      final bean = await ctx.api.session.getTicket(info.to);
-      ticket = bean.ticket;
-    }
+    String ticket = await _ticket();
     final action = info.type == SessionType.channel
         ? Action.messageGroup
         : Action.messageChat;
@@ -425,21 +413,21 @@ class _GlideSessionInternalImpl implements GlideSessionInternal {
   @override
   GlideSessionInfo get info => i;
 
+  Future<String> _ticket() async {
+    String ticket = info.ticket;
+    if (ticket.isEmpty) {
+      final bean = await ctx.api.session.getTicket(info.to);
+      ticket = bean.ticket;
+      updateInfo(info.copyWith(ticket: ticket));
+    }
+    return ticket;
+  }
+
   Future _sendTypingEventInternal() async {
     if (info.type != SessionType.chat) {
-      throw "not chat";
+      throw "$source not chat";
     }
-    if (info.ticket.isEmpty) {
-      throw "no ticket";
-    }
-    await sendClientMessage(
-      ClientMessageType.typing.type,
-      {
-        "from": ctx.myId,
-        "to": info.id,
-        "type": ClientMessageType.typing.type,
-      },
-    );
+    await sendClientMessage(ClientMessageType.typing.type, {});
   }
 
   Future _save() async {
