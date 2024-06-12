@@ -17,13 +17,15 @@ enum MessageStatus {
   pending,
   sent,
   received,
-  read;
+  read,
+  failed;
 }
 
 class Message extends GlideChatMessage {
   final MessageStatus status;
 
-  Message(this.status, {
+  Message(
+    this.status, {
     required super.mid,
     required super.seq,
     required super.from,
@@ -86,9 +88,7 @@ class GlideSessionInfo {
   }
 
   factory GlideSessionInfo.create(String to, String title, SessionType type) {
-    final now = DateTime
-        .now()
-        .millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
     assert(to.isNotEmpty);
     return GlideSessionInfo(
       id: to,
@@ -155,8 +155,10 @@ class DefaultSessionEventInterceptor implements SessionEventInterceptor {
       wrap?.onIncrementUnread(si, cm) ?? 0;
 
   @override
-  Message? onInterceptMessage(GlideSessionInfo si,
-      Message cm,) =>
+  Message? onInterceptMessage(
+    GlideSessionInfo si,
+    Message cm,
+  ) =>
       wrap?.onInterceptMessage(si, cm) ?? cm;
 
   @override
@@ -226,7 +228,7 @@ class GlideMessageMemoryCache implements GlideMessageCache {
   Future<void> updateMessage(Message message) async {
     final sessionId = mids[message.mid]!;
     final idx =
-    _cache[sessionId]?.indexWhere((element) => element.mid == message.mid);
+        _cache[sessionId]?.indexWhere((element) => element.mid == message.mid);
     if (idx != null && idx >= 0) {
       _cache[sessionId]?[idx] = message;
     }
@@ -265,9 +267,11 @@ abstract interface class GlideSession {
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
-  factory GlideSessionInternal(Context ctx,
-      String to,
-      SessionType type,) =>
+  factory GlideSessionInternal(
+    Context ctx,
+    String to,
+    SessionType type,
+  ) =>
       GlideSessionInternal.create(GlideSessionInfo.create2(to, type), ctx);
 
   factory GlideSessionInternal.create(GlideSessionInfo info, Context ctx) =>
@@ -324,7 +328,7 @@ class _GlideSessionInternalImpl
     final sp = sendTypingEventController.stream
         .throttleTime(Duration(seconds: 1))
         .listen(
-          (event) {
+      (event) {
         Logger.info(source, 'send typing event');
         _sendTypingEventInternal();
       },
@@ -346,9 +350,7 @@ class _GlideSessionInternalImpl
     await ctx.messageCache.addMessage(i.id, message);
     i = i.copyWith(
       lastMessage: message.content.toString(),
-      updateAt: DateTime
-          .now()
-          .millisecondsSinceEpoch,
+      updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
     yield "$source message saved";
@@ -377,17 +379,29 @@ class _GlideSessionInternalImpl
     if (m == null) {
       throw "$source, message not found";
     } else {
-      final nm = Message.wrap(m, MessageStatus.received);
-      ctx.messageCache.updateMessage(nm);
-      ctx.event.add(GlobalEvent(
-        source: source,
-        event: MessageEvent(
-          type: action == Action.ackNotify
+      final status =
+          (action == Action.ackNotify || info.type == SessionType.channel)
               ? MessageEventType.received
-              : MessageEventType.sent,
-          message: nm,
-        ),
-      ));
+              : MessageEventType.sent;
+      Message? nm;
+      switch (action) {
+        case Action.ackNotify:
+          nm = Message.wrap(m, MessageStatus.received);
+          ctx.messageCache.updateMessage(nm);
+          break;
+        case Action.ackMessage:
+          nm = Message.wrap(m, MessageStatus.sent);
+          ctx.messageCache.updateMessage(nm);
+          break;
+        default:
+        //
+      }
+      if (nm != null) {
+        ctx.event.add(GlobalEvent(
+          source: source,
+          event: MessageEvent(type: status, message: nm),
+        ));
+      }
       yield "$source message acked";
     }
   }
@@ -425,9 +439,7 @@ class _GlideSessionInternalImpl
         to: info.to,
         type: type,
         content: message,
-        sendAt: DateTime
-            .now()
-            .millisecondsSinceEpoch,
+        sendAt: DateTime.now().millisecondsSinceEpoch,
       ).toJson(),
       ticket,
     );
@@ -486,33 +498,31 @@ class _GlideSessionInternalImpl
   Future sendTextMessage(String content) async {
     String rndId = UuidV8().generate();
     final gcm = GlideChatMessage(
-      mid: DateTime
-          .now()
-          .millisecondsSinceEpoch,
+      mid: DateTime.now().millisecondsSinceEpoch,
       seq: messageSequence,
       from: ctx.myId,
       to: info.id,
       type: ChatMessageType.text.type,
       content: content,
-      sendAt: DateTime
-          .now()
-          .millisecondsSinceEpoch,
+      sendAt: DateTime.now().millisecondsSinceEpoch,
       cliMid: rndId,
     );
-    final cm = Message.wrap(gcm, MessageStatus.pending);
-    String ticket = await _ticket();
+    Message cm = Message.wrap(gcm, MessageStatus.pending);
     final action = info.type == SessionType.channel
         ? Action.messageGroup
         : Action.messageChat;
-    await ctx.ws.sendChatMessage(action, cm, ticket).execute();
+    try {
+      String ticket = await _ticket();
+      await ctx.ws.sendChatMessage(action, cm, ticket).execute();
+    } catch (e) {
+      cm = Message.wrap(cm, MessageStatus.failed);
+    }
     messageSequence++;
     ctx.messageCache.addMessage(i.id, cm);
     ctx.event.add(GlobalEvent(source: source, event: cm));
     i = i.copyWith(
       lastMessage: cm.content.toString(),
-      updateAt: DateTime
-          .now()
-          .millisecondsSinceEpoch,
+      updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
   }
