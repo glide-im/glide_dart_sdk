@@ -117,15 +117,18 @@ class _SessionManagerImpl implements SessionManagerInternal {
   @override
   Stream<String> init() async* {
     final cachedSession = await ctx.sessionCache.getSessions();
-    await Future.delayed(Duration(seconds: 1));
+    yield "cache session loaded, count: ${cachedSession.length}";
     for (var info in cachedSession) {
-      id2session[info.id] = GlideSessionInternal.create(info, ctx);
+      final s = GlideSessionInternal.create(info, ctx);
+      yield* s.init();
+      id2session[info.id] = s;
     }
     initialized = true;
   }
 
   @override
   Future<GlideSession> create(String to, SessionType type) async {
+    await _initialized();
     GlideSessionInfo? si = GlideSessionInfo.create2(to, type);
     si = ctx.sessionEventInterceptor.onSessionCreate(si);
     if (si == null) {
@@ -149,6 +152,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Stream<String> onMessage(Action action, Message cm) async* {
+    await _initialized();
     if (action == Action.messageGroupNotify) {
       yield "$source message ignored";
       return;
@@ -201,6 +205,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Stream<String> onClientMessage(Action action, Message cm) async* {
+    await _initialized();
     final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
     if (session == null) {
@@ -212,6 +217,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Stream<String> onAck(Action action, GlideAckMessage message) async* {
+    await _initialized();
     final session = id2session[message.from] ?? id2session[message.to];
     if (session == null) {
       throw "session not found";
@@ -220,8 +226,9 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   @override
-  Stream<SessionEvent> events() {
-    return ctx.event.stream.mapNotNull((e) {
+  Stream<SessionEvent> events() async* {
+    await _initialized();
+    yield* ctx.event.stream.mapNotNull((e) {
       if (e.event is SessionEvent) {
         return e.event;
       }
@@ -231,6 +238,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Future<GlideSession?> get(String id) async {
+    await _initialized();
     return id2session[id];
   }
 
@@ -250,5 +258,9 @@ class _SessionManagerImpl implements SessionManagerInternal {
   @override
   Future<void> clear() async {
     id2session.clear();
+  }
+
+  Future _initialized() async {
+    await whileInitialized().timeout(Duration(seconds: 10));
   }
 }

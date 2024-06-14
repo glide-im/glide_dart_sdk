@@ -49,20 +49,28 @@ class Glide {
     _sessions = SessionManagerInternal(_context);
   }
 
+  void setSessionCache(SessionListCache c) {
+    _context.sessionCache = c;
+  }
+
+  void setMessageCache(GlideMessageCache c) {
+    _context.messageCache = c;
+  }
+  
   void setSessionEventInterceptor(SessionEventInterceptor interceptor) {
     _interceptor.wrap = interceptor;
   }
 
   String? uid() => _context.myId;
 
-  Future init() async {
+  Stream<String> init() async* {
+    yield "$tag start init";
     states().listen((event) {
       state = event;
     });
 
     Http.init(Configs.apiBaseUrl);
-    await _sessions.init().toList();
-
+    yield* _sessions.init();
     _cli.setConnectFunc(_connectFn);
     _cli.setAuthFunc(_authenticationFn);
     _cli.subscriptionState((state) {
@@ -83,12 +91,14 @@ class Glide {
       }
     });
     _cli.messageStream().listen(
-      (event) {
+          (event) {
         _handleMessage(event);
       },
       onError: (e) {},
       onDone: () {},
     );
+
+    yield "$tag init done";
   }
 
   Stream<GlideState> states() => _stateSc.stream;
@@ -154,11 +164,11 @@ class Glide {
       case Action.messageGroupNotify:
         Message cm = Message.recv(message.data);
         _sessions.onMessage(message.action, cm).listen(
-          (event) {
+              (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
           onError: (e) {
-            Logger.err(tag, e);
+            Logger.err(tag, e.toString());
           },
           onDone: () {
             Logger.info(tag, "[message-${message.hashCode}] handled done");
@@ -168,7 +178,7 @@ class Glide {
       case Action.messageClient:
         Message cm = Message.recv(message.data);
         _sessions.onClientMessage(message.action, cm).listen(
-          (event) {
+              (event) {
             Logger.info(tag, "[cli-message-${message.hashCode}] $event");
           },
           onError: (e) {

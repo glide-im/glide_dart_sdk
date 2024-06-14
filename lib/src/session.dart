@@ -277,6 +277,8 @@ abstract interface class GlideSessionInternal extends GlideSession {
   factory GlideSessionInternal.create(GlideSessionInfo info, Context ctx) =>
       _GlideSessionInternalImpl(info, ctx);
 
+  Stream<String> init();
+
   Stream<String> onMessage(Message message);
 
   Stream<String> onAck(Action action, GlideAckMessage message);
@@ -337,6 +339,11 @@ class _GlideSessionInternalImpl
       },
     );
     addSubscription(sp);
+  }
+
+  @override
+  Stream<String> init() async* {
+    yield "$source initialized";
   }
 
   @override
