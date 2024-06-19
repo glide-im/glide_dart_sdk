@@ -49,6 +49,28 @@ class GlideChatMessage {
   String toString() {
     return 'GlideChatMessage{mid: $mid, seq: $seq, from: $from, to: $to, type: $type, content: $content, sendAt: $sendAt, cliMid: $cliMid}';
   }
+
+  GlideChatMessage copyWith({
+    num? mid,
+    num? seq,
+    String? from,
+    String? to,
+    num? type,
+    dynamic content,
+    num? sendAt,
+    String? cliMid,
+  }) {
+    return GlideChatMessage(
+      mid: mid ?? this.mid,
+      seq: seq ?? this.seq,
+      from: from ?? this.from,
+      to: to ?? this.to,
+      type: type ?? this.type,
+      content: content ?? this.content,
+      sendAt: sendAt ?? this.sendAt,
+      cliMid: cliMid ?? this.cliMid,
+    );
+  }
 }
 
 class GlideAckMessage {

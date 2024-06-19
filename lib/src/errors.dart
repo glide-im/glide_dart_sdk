@@ -9,4 +9,9 @@ class GlideException implements Exception {
   static const cacheUnavailable = GlideException(message: "cache unavailable");
 
   const GlideException({required this.message});
+
+  @override
+  String toString() {
+    return "GlideException: $message";
+  }
 }

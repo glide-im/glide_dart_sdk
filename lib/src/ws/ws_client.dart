@@ -150,6 +150,7 @@ class WsClientImpl implements WsClient {
     if (delay != null) {
       _autoConnectDelay = delay;
     }
+    Logger.info(_tag, "setAutoReconnect: autoReconnect=$autoReconnect, delay=$delay");
   }
 
   @override
@@ -166,7 +167,7 @@ class WsClientImpl implements WsClient {
   Future close({bool discardMessages = false, bool reconnect = false}) async {
     /// 临时设置全局重连
     final t = _autoReconnect;
-    _autoReconnect = reconnect;
+    setAutoReconnect(reconnect);
     try {
       _wsConnection.close();
       await _stateSc.stream
@@ -175,7 +176,7 @@ class WsClientImpl implements WsClient {
     } catch (e) {
       Logger.err(_tag, e);
     }
-    _autoReconnect = t;
+    setAutoReconnect(t);
   }
 
   @override
@@ -235,8 +236,9 @@ class WsClientImpl implements WsClient {
         return Future.value();
       }
     }
-    _tryConnect(authentication, isAutoConnect: true);
-    Logger.debug(_tag, "waiting for ws available...");
+    _tryConnect(authentication, isAutoConnect: true).then((value){
+      Logger.debug(_tag, "waiting for ws available...");
+    });
 
     // 每秒检测一次连接状态
     return Stream.periodic(const Duration(seconds: 1), (i) {
@@ -258,7 +260,7 @@ class WsClientImpl implements WsClient {
 
   /// 尝试连接到服务器
   Future _tryConnect(bool authNeeded,
-      {String? url, bool isAutoConnect = false}) {
+      {String? url, bool isAutoConnect = false}) async {
     if (!_autoReconnect && isAutoConnect) {
       return Future.value();
     }
@@ -272,7 +274,6 @@ class WsClientImpl implements WsClient {
         Logger.info(_tag, 'skip connect: $_state');
         return;
       }
-      _stateChange(WsClientState.connecting);
       int retry = 0;
       await RetryWhenStream(() {
         Logger.debug(
@@ -312,7 +313,6 @@ class WsClientImpl implements WsClient {
       }
     }).catchError((e) async {
       Logger.debug(_tag, "reconnect error: $e");
-      _stateChange(WsClientState.disconnected);
     });
   }
 

@@ -54,6 +54,31 @@ class Message extends GlideChatMessage {
       cliMid: cm.cliMid,
     );
   }
+
+  @override
+  Message copyWith({
+    num? mid,
+    num? seq,
+    String? from,
+    String? to,
+    num? type,
+    dynamic content,
+    num? sendAt,
+    String? cliMid,
+    MessageStatus? status,
+  }) {
+    return Message(
+      status ?? this.status,
+      mid: mid ?? this.mid,
+      seq: seq ?? this.seq,
+      from: from ?? this.from,
+      to: to ?? this.to,
+      type: type ?? this.type,
+      content: content ?? this.content,
+      sendAt: sendAt ?? this.sendAt,
+      cliMid: cliMid ?? this.cliMid,
+    );
+  }
 }
 
 class GlideSessionInfo {
@@ -167,6 +192,8 @@ class DefaultSessionEventInterceptor implements SessionEventInterceptor {
 }
 
 abstract interface class GlideMessageCache {
+  Future init(String uid);
+
   Future<List<Message>> getMessages(String sessionId);
 
   Future<void> addMessage(String sessionId, Message message);
@@ -185,6 +212,12 @@ abstract interface class GlideMessageCache {
 class GlideMessageMemoryCache implements GlideMessageCache {
   final Map<String, List<Message>> _cache = {};
   final Map<num, String> mids = {};
+
+  @override
+  Future init(String uid) async {
+    _cache.clear();
+    mids.clear();
+  }
 
   @override
   Future<void> addMessage(String sessionId, Message message) async {
@@ -472,7 +505,9 @@ class _GlideSessionInternalImpl
 
   @override
   Future<List<Message>> history() async {
-    return await ctx.messageCache.getMessages(i.id);
+    final ms = await ctx.messageCache.getMessages(i.id);
+    ms.sort((a, b) => (a.sendAt - b.sendAt).toInt());
+    return ms;
   }
 
   @override

@@ -20,9 +20,10 @@ class AuthApi {
       );
 
   Future<AuthBean> loginPassword(String phone, String password) => Http.post(
-        "auth/login",
+        "auth/signin_v2",
         {
-          "phone": phone,
+          "device": 0,
+          "email": phone,
           "password": password,
         },
         AuthBean.fromJson,

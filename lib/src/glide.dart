@@ -56,7 +56,7 @@ class Glide {
   void setMessageCache(GlideMessageCache c) {
     _context.messageCache = c;
   }
-  
+
   void setSessionEventInterceptor(SessionEventInterceptor interceptor) {
     _interceptor.wrap = interceptor;
   }
@@ -70,7 +70,6 @@ class Glide {
     });
 
     Http.init(Configs.apiBaseUrl);
-    yield* _sessions.init();
     _cli.setConnectFunc(_connectFn);
     _cli.setAuthFunc(_authenticationFn);
     _cli.subscriptionState((state) {
@@ -135,6 +134,18 @@ class Glide {
     await _cli.request(Action.auth, _credential, needAuth: false);
     _stateSc.add(GlideState.connected);
     _cli.setAuthenticationCompleted();
+
+    Logger.info(tag, "init account cache");
+    await _context.sessionCache.init(_context.myId).timeout(
+        const Duration(seconds: 5));
+    await _context.messageCache.init(_context.myId).timeout(
+        const Duration(seconds: 5));
+
+    await _sessions.init().forEach((event) {
+      Logger.info(tag, "session manager: $event");
+    }).timeout(const Duration(seconds: 5));
+
+    Logger.info(tag, "login done");
     return resp;
   }
 
@@ -163,12 +174,13 @@ class Glide {
       case Action.messageGroup:
       case Action.messageGroupNotify:
         Message cm = Message.recv(message.data);
-        _sessions.onMessage(message.action, cm).listen(
+        _sessions.onMessage(message.action, cm).timeout(
+            const Duration(seconds: 3)).listen(
               (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
           onError: (e) {
-            Logger.err(tag, e.toString());
+            Logger.err(tag, e);
           },
           onDone: () {
             Logger.info(tag, "[message-${message.hashCode}] handled done");
@@ -177,7 +189,8 @@ class Glide {
         break;
       case Action.messageClient:
         Message cm = Message.recv(message.data);
-        _sessions.onClientMessage(message.action, cm).listen(
+        _sessions.onClientMessage(message.action, cm).timeout(
+            const Duration(seconds: 3)).listen(
               (event) {
             Logger.info(tag, "[cli-message-${message.hashCode}] $event");
           },
@@ -189,7 +202,9 @@ class Glide {
       case Action.ackNotify:
       case Action.ackMessage:
         final ack = GlideAckMessage.fromMap(message.data);
-        _sessions.onAck(message.action, ack).listen((event) {
+        _sessions.onAck(message.action, ack)
+            .timeout(const Duration(seconds: 3))
+            .listen((event) {
           //
         }, onError: (e) {
           Logger.err(tag, e);
