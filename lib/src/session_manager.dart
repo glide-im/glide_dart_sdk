@@ -139,7 +139,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
   @override
   Future<GlideSession> create(String to, SessionType type) async {
     GlideSessionInfo? si = GlideSessionInfo.create2(to, type);
-    si = ctx.sessionEventInterceptor.onSessionCreate(si);
+    si = await ctx.sessionEventInterceptor.onSessionCreate(si);
     if (si == null) {
       throw GlideException(message: "session create rejected");
     }

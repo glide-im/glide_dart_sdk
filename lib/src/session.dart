@@ -169,7 +169,7 @@ abstract class SessionEventInterceptor {
 
   Message? onInterceptMessage(GlideSessionInfo si, Message cm);
 
-  GlideSessionInfo? onSessionCreate(GlideSessionInfo si);
+  Future<GlideSessionInfo?> onSessionCreate(GlideSessionInfo si);
 }
 
 class DefaultSessionEventInterceptor implements SessionEventInterceptor {
@@ -187,8 +187,8 @@ class DefaultSessionEventInterceptor implements SessionEventInterceptor {
       wrap?.onInterceptMessage(si, cm) ?? cm;
 
   @override
-  GlideSessionInfo? onSessionCreate(GlideSessionInfo si) =>
-      wrap?.onSessionCreate(si) ?? si;
+  Future<GlideSessionInfo?> onSessionCreate(GlideSessionInfo si) =>
+      wrap?.onSessionCreate(si) ?? Future.value(si);
 }
 
 abstract interface class GlideMessageCache {

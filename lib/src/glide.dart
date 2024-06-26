@@ -10,6 +10,7 @@ import 'package:glide_dart_sdk/src/session.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
+import 'package:rxdart/rxdart.dart';
 
 import 'config.dart';
 import 'session_manager.dart';
@@ -24,16 +25,21 @@ enum GlideState {
   connecting;
 }
 
+abstract class GlideEventListener {
+  void onCacheLoaded();
+}
+
 class Glide {
   final tag = "Glide";
   final _cli = GlideWsClient();
-  dynamic _credential;
+  String _token = "";
   late Context _context;
   late SessionManagerInternal _sessions;
   final _interceptor = DefaultSessionEventInterceptor();
 
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
   final GlideApi api = GlideApi();
+  GlideEventListener? _listener;
 
   GlideState state = GlideState.init;
 
@@ -55,6 +61,10 @@ class Glide {
 
   void setMessageCache(GlideMessageCache c) {
     _context.messageCache = c;
+  }
+
+  void setEventListener(GlideEventListener? listener) {
+    _listener = listener;
   }
 
   void setSessionEventInterceptor(SessionEventInterceptor interceptor) {
@@ -102,12 +112,19 @@ class Glide {
 
   Stream<GlideState> states() => _stateSc.stream;
 
+  Stream<Message> messageStream() =>
+      _context.event.stream.mapNotNull((event) {
+        return event.event is Message ? event.event : null;
+      });
+
   SessionManager get sessionManager => _sessions;
+
 
   Future logout() async {
     _context.myId = "";
-    _credential = null;
-    await _cli.close();
+    if (state == GlideState.connected) {
+      await _cli.close();
+    }
   }
 
   static void setLogger(IOSink? sink) {
@@ -118,7 +135,7 @@ class Glide {
     return await _startAuth(api.auth.loginToken(token));
   }
 
-  Future<AuthBean> guestLogin(String avatar, String nickname) async {
+  Future<AuthBean> guestLogin(String nickname, String avatar) async {
     return await _startAuth(api.auth.loginGuest(nickname, avatar));
   }
 
@@ -129,13 +146,12 @@ class Glide {
   Future<AuthBean> _startAuth(Future<AuthBean> api) async {
     final resp = await api;
     _context.myId = resp.uid!.toString();
-    _credential = resp.credential!.toJson();
+    _token = resp.token!;
+    final credential = resp.credential!.toJson();
     Http.setToken(resp.token!);
-    await _cli.request(Action.auth, _credential, needAuth: false);
-    _stateSc.add(GlideState.connected);
-    _cli.setAuthenticationCompleted();
 
-    Logger.info(tag, "init account cache");
+    Logger.info(tag, "init account cache, ${_context.sessionCache}, ${_context
+        .messageCache}");
     await _context.sessionCache.init(_context.myId).timeout(
         const Duration(seconds: 5));
     await _context.messageCache.init(_context.myId).timeout(
@@ -144,6 +160,13 @@ class Glide {
     await _sessions.init().forEach((event) {
       Logger.info(tag, "session manager: $event");
     }).timeout(const Duration(seconds: 5));
+
+    _listener?.onCacheLoaded();
+
+    Logger.info(tag, "authentication websocket");
+    await _cli.request(Action.auth, credential, needAuth: false);
+    _stateSc.add(GlideState.connected);
+    _cli.setAuthenticationCompleted();
 
     Logger.info(tag, "login done");
     return resp;
@@ -154,12 +177,13 @@ class Glide {
   }
 
   Future _authenticationFn(GlideWsClient client) async {
-    if (_credential == null) {
+    if (_token.isEmpty) {
       client.close();
       throw GlideException.unauthorized;
     }
     try {
-      await client.request(Action.auth, _credential, needAuth: false);
+      final bean = await api.auth.loginToken(_token);
+      await client.request(Action.auth, bean.credential!.toJson(), needAuth: false);
     } catch (e) {
       client.close();
       throw GlideException.authorizeFailed;
