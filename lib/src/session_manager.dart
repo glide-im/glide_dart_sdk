@@ -7,6 +7,7 @@ import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'errors.dart';
+import 'message.dart';
 import 'session.dart';
 
 abstract interface class SessionListCache {
@@ -125,6 +126,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
   @override
   Stream<String> init() async* {
     yield "$source start init";
+    await clear();
     final cachedSession = await ctx.sessionCache.getSessions();
     yield "cache session loaded, count: ${cachedSession.length}";
     for (var info in cachedSession) {
@@ -167,7 +169,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
       return;
     }
     Message cm = m;
-    if (cm.sendAt < 171878687139){
+    if (cm.sendAt < 171878687139) {
       cm = cm.copyWith(sendAt: DateTime.now().millisecondsSinceEpoch);
     }
     final target = cm.to == ctx.myId ? cm.from : cm.to;
@@ -177,12 +179,12 @@ class _SessionManagerImpl implements SessionManagerInternal {
     if (type == SessionType.chat) {
       ctx.ws
           .send(ProtocolMessage.ackRequest(GlideAckMessage(
-        mid: cm.mid,
-        from: ctx.myId,
-        to: target,
-        cliMid: cm.cliMid,
-        seq: cm.seq,
-      )))
+            mid: cm.mid,
+            from: ctx.myId,
+            to: target,
+            cliMid: cm.cliMid,
+            seq: cm.seq,
+          )))
           .execute()
           .onError((error, stackTrace) {
         Logger.err("message ack error", error);
@@ -194,7 +196,8 @@ class _SessionManagerImpl implements SessionManagerInternal {
       session = await create(target, type) as GlideSessionInternal;
       yield "$source session created ${session.info.id}";
     }
-    final ncm = ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
+    final ncm =
+        ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
     if (ncm == null) {
       yield "message intercepted";
       return;
@@ -202,7 +205,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     yield* session.onMessage(ncm);
 
     final increment =
-    ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
+        ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
     await session.addUnread(increment);
 
     yield "$source notify update";
@@ -266,6 +269,9 @@ class _SessionManagerImpl implements SessionManagerInternal {
 
   @override
   Future<void> clear() async {
+    id2session.forEach((key, value) {
+      value.close();
+    });
     id2session.clear();
   }
 

@@ -13,6 +13,7 @@ import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'config.dart';
+import 'message.dart';
 import 'session_manager.dart';
 import 'ws/messages.dart';
 import 'ws/protocol.dart';
@@ -25,10 +26,6 @@ enum GlideState {
   connecting;
 }
 
-abstract class GlideEventListener {
-  void onCacheLoaded();
-}
-
 class Glide {
   final tag = "Glide";
   final _cli = GlideWsClient();
@@ -39,7 +36,6 @@ class Glide {
 
   final StreamController<GlideState> _stateSc = StreamController.broadcast();
   final GlideApi api = GlideApi();
-  GlideEventListener? _listener;
 
   GlideState state = GlideState.init;
 
@@ -61,10 +57,6 @@ class Glide {
 
   void setMessageCache(GlideMessageCache c) {
     _context.messageCache = c;
-  }
-
-  void setEventListener(GlideEventListener? listener) {
-    _listener = listener;
   }
 
   void setSessionEventInterceptor(SessionEventInterceptor interceptor) {
@@ -100,7 +92,7 @@ class Glide {
       }
     });
     _cli.messageStream().listen(
-          (event) {
+      (event) {
         _handleMessage(event);
       },
       onError: (e) {},
@@ -112,18 +104,17 @@ class Glide {
 
   Stream<GlideState> states() => _stateSc.stream;
 
-  Stream<Message> messageStream() =>
-      _context.event.stream.mapNotNull((event) {
+  Stream<Message> messageStream() => _context.event.stream.mapNotNull((event) {
         return event.event is Message ? event.event : null;
       });
 
   SessionManager get sessionManager => _sessions;
 
-
   Future logout() async {
     _context.myId = "";
+    await _sessions.clear();
     if (state == GlideState.connected) {
-      await _cli.close();
+      await _cli.close(discardMessages: true);
     }
   }
 
@@ -132,44 +123,44 @@ class Glide {
   }
 
   Future<AuthBean> tokenLogin(String token) async {
-    return await _startAuth(api.auth.loginToken(token));
+    return await api.auth.loginToken(token);
   }
 
   Future<AuthBean> guestLogin(String nickname, String avatar) async {
-    return await _startAuth(api.auth.loginGuest(nickname, avatar));
+    return await api.auth.loginGuest(nickname, avatar);
   }
 
   Future<AuthBean> login(String account, String password) async {
-    return await _startAuth(api.auth.loginPassword(account, password));
+    return await api.auth.loginPassword(account, password);
   }
 
-  Future<AuthBean> _startAuth(Future<AuthBean> api) async {
-    final resp = await api;
-    _context.myId = resp.uid!.toString();
-    _token = resp.token!;
-    final credential = resp.credential!.toJson();
-    Http.setToken(resp.token!);
+  Future connect(AuthBean bean) async {
+    _context.myId = bean.uid!.toString();
+    _token = bean.token!;
+    final credential = bean.credential!.toJson();
+    Http.setToken(bean.token!);
 
-    Logger.info(tag, "init account cache, ${_context.sessionCache}, ${_context
-        .messageCache}");
-    await _context.sessionCache.init(_context.myId).timeout(
-        const Duration(seconds: 5));
-    await _context.messageCache.init(_context.myId).timeout(
-        const Duration(seconds: 5));
+    Logger.info(tag, "websocket authentication...");
+    await _cli.request(Action.auth, credential, needAuth: false);
+    _stateSc.add(GlideState.connected);
+    _cli.setAuthenticationCompleted();
+    Logger.info(tag, "websocket authenticated");
+  }
+
+  Future initCache(String uid) async {
+    Logger.info(tag,
+        "init account cache, uid: $uid, ${_context.sessionCache}, ${_context.messageCache}");
+    await _context.sessionCache
+        .init(uid)
+        .timeout(const Duration(seconds: 5));
+    await _context.messageCache
+        .init(uid)
+        .timeout(const Duration(seconds: 5));
 
     await _sessions.init().forEach((event) {
       Logger.info(tag, "session manager: $event");
     }).timeout(const Duration(seconds: 5));
-
-    _listener?.onCacheLoaded();
-
-    Logger.info(tag, "authentication websocket");
-    await _cli.request(Action.auth, credential, needAuth: false);
-    _stateSc.add(GlideState.connected);
-    _cli.setAuthenticationCompleted();
-
-    Logger.info(tag, "login done");
-    return resp;
+    Logger.info(tag, "init cache done");
   }
 
   Future _connectFn(WsConnection client) async {
@@ -183,7 +174,8 @@ class Glide {
     }
     try {
       final bean = await api.auth.loginToken(_token);
-      await client.request(Action.auth, bean.credential!.toJson(), needAuth: false);
+      await client.request(Action.auth, bean.credential!.toJson(),
+          needAuth: false);
     } catch (e) {
       client.close();
       throw GlideException.authorizeFailed;
@@ -197,10 +189,12 @@ class Glide {
       case Action.messageChat:
       case Action.messageGroup:
       case Action.messageGroupNotify:
-        Message cm = Message.recv(message.data);
-        _sessions.onMessage(message.action, cm).timeout(
-            const Duration(seconds: 3)).listen(
-              (event) {
+        Message cm = Message.fromMap(message.data);
+        _sessions
+            .onMessage(message.action, cm)
+            .timeout(const Duration(seconds: 3))
+            .listen(
+          (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
           onError: (e) {
@@ -212,10 +206,12 @@ class Glide {
         );
         break;
       case Action.messageClient:
-        Message cm = Message.recv(message.data);
-        _sessions.onClientMessage(message.action, cm).timeout(
-            const Duration(seconds: 3)).listen(
-              (event) {
+        Message cm = Message.fromMap(message.data);
+        _sessions
+            .onClientMessage(message.action, cm)
+            .timeout(const Duration(seconds: 3))
+            .listen(
+          (event) {
             Logger.info(tag, "[cli-message-${message.hashCode}] $event");
           },
           onError: (e) {
@@ -226,12 +222,13 @@ class Glide {
       case Action.ackNotify:
       case Action.ackMessage:
         final ack = GlideAckMessage.fromMap(message.data);
-        _sessions.onAck(message.action, ack)
+        _sessions
+            .onAck(message.action, ack)
             .timeout(const Duration(seconds: 3))
             .listen((event) {
           //
-        }, onError: (e) {
-          Logger.err(tag, e);
+        }, onError: (e, s) {
+          Logger.err(tag, s);
         });
         break;
       case Action.kickout:

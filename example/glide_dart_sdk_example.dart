@@ -1,11 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:glide_dart_sdk/glide_dart_sdk.dart';
 
 void main() async {
   final glide = Glide();
-  await glide.init();
-  await glide.guestLogin("avatar", "2");
-  await delay(1);
 
+  Glide.setLogger(stdout.nonBlocking);
+
+  await glide.init().last;
   glide.sessionManager.events().listen((event) {
     print("event: $event");
     if (event.type == SessionEventType.sessionAdded) {
@@ -15,9 +18,12 @@ void main() async {
     }
   });
 
+  final bean = await glide.guestLogin("test", "");
+  await glide.initCache(bean.uid.toString());
+  await glide.connect(bean);
   await glide.sessionManager.whileInitialized();
 
-  await delay(10);
+  await delay(20);
   final sessions = await glide.sessionManager.getSessions();
   for (var ses in sessions) {
     print("${ses.info}");

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:glide_dart_sdk/glide_dart_sdk.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
@@ -11,74 +12,6 @@ import 'context.dart';
 enum SessionType {
   chat,
   channel;
-}
-
-enum MessageStatus {
-  pending,
-  sent,
-  received,
-  read,
-  failed;
-}
-
-class Message extends GlideChatMessage {
-  final MessageStatus status;
-
-  Message(
-    this.status, {
-    required super.mid,
-    required super.seq,
-    required super.from,
-    required super.to,
-    required super.type,
-    required super.content,
-    required super.sendAt,
-    required super.cliMid,
-  });
-
-  factory Message.recv(Map<String, dynamic> json) {
-    return Message.wrap(
-        GlideChatMessage.fromJson(json), MessageStatus.received);
-  }
-
-  factory Message.wrap(GlideChatMessage cm, MessageStatus status) {
-    return Message(
-      status,
-      mid: cm.mid,
-      seq: cm.seq,
-      from: cm.from,
-      to: cm.to,
-      type: cm.type,
-      content: cm.content,
-      sendAt: cm.sendAt,
-      cliMid: cm.cliMid,
-    );
-  }
-
-  @override
-  Message copyWith({
-    num? mid,
-    num? seq,
-    String? from,
-    String? to,
-    num? type,
-    dynamic content,
-    num? sendAt,
-    String? cliMid,
-    MessageStatus? status,
-  }) {
-    return Message(
-      status ?? this.status,
-      mid: mid ?? this.mid,
-      seq: seq ?? this.seq,
-      from: from ?? this.from,
-      to: to ?? this.to,
-      type: type ?? this.type,
-      content: content ?? this.content,
-      sendAt: sendAt ?? this.sendAt,
-      cliMid: cliMid ?? this.cliMid,
-    );
-  }
 }
 
 class GlideSessionInfo {
@@ -279,6 +212,8 @@ abstract interface class GlideSession {
 
   Future sendTextMessage(String content);
 
+  Future sendFileMessage(FileMessageBody body);
+
   // when user is tapping the keyboard, invoke this function to notify target.
   void sendTypingEvent();
 
@@ -296,7 +231,7 @@ abstract interface class GlideSession {
 
   Stream<MessageEvent> messageEvent();
 
-  Future sendClientMessage(num type, dynamic message);
+  Future sendClientMessage(CustomMessageBody body);
 }
 
 abstract interface class GlideSessionInternal extends GlideSession {
@@ -317,6 +252,8 @@ abstract interface class GlideSessionInternal extends GlideSession {
   Stream<String> onAck(Action action, GlideAckMessage message);
 
   Stream<String> onClientMessage(Message message);
+
+  void close();
 }
 
 class _ClientMessageEvent {
@@ -380,6 +317,12 @@ class _GlideSessionInternalImpl
   }
 
   @override
+  void close() {
+    dispose();
+    sendTypingEventController.close();
+  }
+
+  @override
   Stream<String> onMessage(Message message) async* {
     yield "$source message received";
     if (await ctx.messageCache.hasMessage(message.mid)) {
@@ -426,11 +369,11 @@ class _GlideSessionInternalImpl
       Message? nm;
       switch (action) {
         case Action.ackNotify:
-          nm = Message.wrap(m, MessageStatus.received);
+          nm = m.copyWith(status: MessageStatus.received);
           ctx.messageCache.updateMessage(nm);
           break;
         case Action.ackMessage:
-          nm = Message.wrap(m, MessageStatus.sent);
+          nm = m.copyWith(status: MessageStatus.sent);
           ctx.messageCache.updateMessage(nm);
           break;
         default:
@@ -466,7 +409,7 @@ class _GlideSessionInternalImpl
   }
 
   @override
-  Future sendClientMessage(num type, dynamic message) async {
+  Future sendClientMessage(CustomMessageBody body) async {
     final ticket = await _ticket();
     final task = ctx.ws.send2(
       Action.messageClient,
@@ -477,8 +420,8 @@ class _GlideSessionInternalImpl
         cliMid: '',
         from: ctx.myId,
         to: info.to,
-        type: type,
-        content: message,
+        type: ChatMessageType.custom.value,
+        content: body.toMap(),
         sendAt: DateTime.now().millisecondsSinceEpoch,
       ).toJson(),
       ticket,
@@ -524,7 +467,12 @@ class _GlideSessionInternalImpl
   @override
   Stream<bool> onTypingChanged() {
     return clientMessage()
-        .where((event) => event.type == ClientMessageType.typing.type)
+        .where((event) => event.type == ChatMessageType.custom)
+        .where(
+          (event) =>
+              CustomMessageBody.fromMap(event.content).type ==
+              CustomMessageType.typing,
+        )
         .map((event) => true)
         .timeout(Duration(seconds: 2))
         .onErrorReturn(false)
@@ -537,27 +485,36 @@ class _GlideSessionInternalImpl
   }
 
   @override
+  Future sendFileMessage(FileMessageBody body) async {
+    await _send(ChatMessageType.file, JsonEncoder().convert(body.toMap()));
+  }
+
+  @override
   Future sendTextMessage(String content) async {
+    await _send(ChatMessageType.text, content);
+  }
+
+  Future _send(ChatMessageType type, dynamic content) async {
     String rndId = UuidV8().generate();
     final gcm = GlideChatMessage(
       mid: DateTime.now().millisecondsSinceEpoch,
       seq: messageSequence,
       from: ctx.myId,
       to: info.id,
-      type: ChatMessageType.text.type,
+      type: type.value,
       content: content,
       sendAt: DateTime.now().millisecondsSinceEpoch,
       cliMid: rndId,
     );
-    Message cm = Message.wrap(gcm, MessageStatus.pending);
+    Message cm = Message.wrap(gcm, MessageStatus.unknown);
     final action = info.type == SessionType.channel
         ? Action.messageGroup
         : Action.messageChat;
     try {
       String ticket = await _ticket();
-      await ctx.ws.sendChatMessage(action, cm, ticket).execute();
+      await ctx.ws.sendChatMessage(action, gcm, ticket).execute();
     } catch (e) {
-      cm = Message.wrap(cm, MessageStatus.failed);
+      cm = cm.copyWith(status: MessageStatus.failed);
     }
     messageSequence++;
     ctx.messageCache.addMessage(i.id, cm);
@@ -586,7 +543,10 @@ class _GlideSessionInternalImpl
     if (info.type != SessionType.chat) {
       throw "$source not chat";
     }
-    await sendClientMessage(ClientMessageType.typing.type, {});
+    await sendClientMessage(CustomMessageBody(
+      type: CustomMessageType.typing,
+      data: null,
+    ));
   }
 
   Future _save() async {

@@ -1,9 +1,45 @@
+// general message type, persistent
+
+enum ChatMessageType {
+  text(1),
+  image(2),
+  file(3),
+  location(4),
+  voice(5),
+  video(6),
+  markdown(11),
+  custom(20),
+  enter(100),
+  leave(101),
+  unknown(-1);
+
+  final int value;
+
+  bool isTextBody() {
+    return this == ChatMessageType.text ||
+        this == ChatMessageType.markdown ||
+        this == ChatMessageType.leave ||
+        this == ChatMessageType.enter ||
+        this == ChatMessageType.unknown;
+  }
+
+  static final Map<num, ChatMessageType> _map = {
+    for (var type in ChatMessageType.values) type.value: type
+  };
+
+  const ChatMessageType(this.value);
+
+  static ChatMessageType of(num type) {
+    return _map[type] ?? ChatMessageType.unknown;
+  }
+}
+
 class GlideChatMessage {
   final num mid;
   final num seq;
   final String from;
   final String to;
-  final num type;
+  final int type;
   final dynamic content;
   final num sendAt;
   final String cliMid;
@@ -25,7 +61,7 @@ class GlideChatMessage {
       seq: json['seq'] ?? 0,
       from: json['from'] ?? '',
       to: json['to'] ?? '',
-      type: json['type'],
+      type: json['type'] ?? 0,
       content: json['content'],
       sendAt: json['sendAt'] ?? 0,
       cliMid: json['cliMid'] ?? '',
@@ -55,7 +91,7 @@ class GlideChatMessage {
     num? seq,
     String? from,
     String? to,
-    num? type,
+    int? type,
     dynamic content,
     num? sendAt,
     String? cliMid,
