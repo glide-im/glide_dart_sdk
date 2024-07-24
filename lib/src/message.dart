@@ -78,11 +78,43 @@ enum FileMessageType {
 
   const FileMessageType(this.value);
 
+  static FileMessageType of(String name) {
+    final ext = name
+        .split('.')
+        .last;
+    switch (ext) {
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'gif':
+        return FileMessageType.image;
+      case 'mp4':
+      case 'avi':
+        return FileMessageType.video;
+      case 'pdf':
+      case 'ppt':
+      case 'doc':
+      case 'xls':
+      case 'pptx':
+      case 'docx':
+      case 'xlsx':
+        return FileMessageType.document;
+      case 'mp3':
+      case 'wav':
+      case 'ogg':
+      case 'm4a':
+        return FileMessageType.audio;
+      default:
+        return FileMessageType.unknown;
+    }
+  }
+
   static final Map<num, FileMessageType> _map = {
     for (var type in FileMessageType.values) type.value: type
   };
 
-  static FileMessageType valueOf(int value) {
+  static FileMessageType valueOf
+      (int value) {
     return _map[value] ?? FileMessageType.unknown;
   }
 }
@@ -159,7 +191,7 @@ class Message {
     final type = ChatMessageType.of(cm.type);
     dynamic content;
     if (type.isTextBody()) {
-      content = cm.content as String;
+      content = cm.content as String?;
     } else {
       if (cm.content is String) {
         content = JsonDecoder().convert(cm.content as String);
@@ -180,7 +212,7 @@ class Message {
     );
   }
 
-  bool validate(){
+  bool validate() {
     if (content is String) {
       return type.isTextBody();
     }

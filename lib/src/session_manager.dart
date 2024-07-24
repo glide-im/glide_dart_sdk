@@ -93,6 +93,8 @@ abstract interface class SessionManager {
 
   Future<GlideSession?> get(String id);
 
+  Future delete(String id, bool deleteMessage);
+
   Future<GlideSession> create(String target, SessionType type);
 
   Future<List<GlideSession>> getSessions();
@@ -170,7 +172,9 @@ class _SessionManagerImpl implements SessionManagerInternal {
     }
     Message cm = m;
     if (cm.sendAt < 171878687139) {
-      cm = cm.copyWith(sendAt: DateTime.now().millisecondsSinceEpoch);
+      cm = cm.copyWith(sendAt: DateTime
+          .now()
+          .millisecondsSinceEpoch);
     }
     final target = cm.to == ctx.myId ? cm.from : cm.to;
     GlideSessionInternal? session = id2session[target];
@@ -179,12 +183,12 @@ class _SessionManagerImpl implements SessionManagerInternal {
     if (type == SessionType.chat) {
       ctx.ws
           .send(ProtocolMessage.ackRequest(GlideAckMessage(
-            mid: cm.mid,
-            from: ctx.myId,
-            to: target,
-            cliMid: cm.cliMid,
-            seq: cm.seq,
-          )))
+        mid: cm.mid,
+        from: ctx.myId,
+        to: target,
+        cliMid: cm.cliMid,
+        seq: cm.seq,
+      )))
           .execute()
           .onError((error, stackTrace) {
         Logger.err("message ack error", error);
@@ -197,7 +201,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
       yield "$source session created ${session.info.id}";
     }
     final ncm =
-        ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
+    ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
     if (ncm == null) {
       yield "message intercepted";
       return;
@@ -205,7 +209,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     yield* session.onMessage(ncm);
 
     final increment =
-        ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
+    ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
     await session.addUnread(increment);
 
     yield "$source notify update";
@@ -247,6 +251,19 @@ class _SessionManagerImpl implements SessionManagerInternal {
       }
       return null;
     });
+  }
+
+  Future delete(String id, bool deleteMessage) async {
+    final session = id2session[id];
+    if (session == null) {
+      throw "session not found";
+    }
+    await session.close();
+    await ctx.sessionCache.removeSession(id);
+    if (deleteMessage) {
+      await session.clear();
+    }
+    id2session.remove(id);
   }
 
   @override

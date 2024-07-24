@@ -103,6 +103,8 @@ abstract class SessionEventInterceptor {
   Message? onInterceptMessage(GlideSessionInfo si, Message cm);
 
   Future<GlideSessionInfo?> onSessionCreate(GlideSessionInfo si);
+
+  Future<String?> onUpdateLastMessage(GlideSessionInfo si, Message cm);
 }
 
 class DefaultSessionEventInterceptor implements SessionEventInterceptor {
@@ -122,6 +124,10 @@ class DefaultSessionEventInterceptor implements SessionEventInterceptor {
   @override
   Future<GlideSessionInfo?> onSessionCreate(GlideSessionInfo si) =>
       wrap?.onSessionCreate(si) ?? Future.value(si);
+
+  @override
+  Future<String?> onUpdateLastMessage(GlideSessionInfo si, Message cm) =>
+      wrap?.onUpdateLastMessage(si, cm) ?? Future.value(cm.content.toString());
 }
 
 abstract interface class GlideMessageCache {
@@ -231,6 +237,8 @@ abstract interface class GlideSession {
 
   Stream<MessageEvent> messageEvent();
 
+  Future clear();
+  
   Future sendClientMessage(CustomMessageBody body);
 }
 
@@ -253,7 +261,7 @@ abstract interface class GlideSessionInternal extends GlideSession {
 
   Stream<String> onClientMessage(Message message);
 
-  void close();
+  Future close();
 }
 
 class _ClientMessageEvent {
@@ -317,7 +325,7 @@ class _GlideSessionInternalImpl
   }
 
   @override
-  void close() {
+  Future close() async {
     dispose();
     sendTypingEventController.close();
   }
@@ -331,8 +339,10 @@ class _GlideSessionInternalImpl
       return;
     }
     await ctx.messageCache.addMessage(i.id, message);
+    final lastMessage = await ctx.sessionEventInterceptor
+        .onUpdateLastMessage(info, message);
     i = i.copyWith(
-      lastMessage: message.content.toString(),
+      lastMessage: lastMessage,
       updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
@@ -452,6 +462,11 @@ class _GlideSessionInternalImpl
     ms.sort((a, b) => (a.sendAt - b.sendAt).toInt());
     return ms;
   }
+  
+  @override
+  Future clear() async {
+    //
+  }
 
   @override
   Stream<Message> messages() {
@@ -519,8 +534,9 @@ class _GlideSessionInternalImpl
     messageSequence++;
     ctx.messageCache.addMessage(i.id, cm);
     ctx.event.add(GlobalEvent(source: source, event: cm));
+    final lastMsg = await ctx.sessionEventInterceptor.onUpdateLastMessage(info, cm);
     i = i.copyWith(
-      lastMessage: cm.content.toString(),
+      lastMessage: lastMsg,
       updateAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _save();
