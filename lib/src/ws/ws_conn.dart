@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:glide_dart_sdk/src/utils/logger.dart';
-// import 'package:web_socket_channel/html.dart';
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+import 'websocket_web.dart' if (dart.library.io) 'websocket_io.dart';
 
 typedef Disposable = void Function();
 
@@ -25,8 +25,7 @@ abstract class WsConnection {
   Stream<dynamic>? getStream();
 
   /// 连接 ws, 若设置 url, 则覆盖之前的 url, 否则使用上一次连接的 url.
-  Future<WsConnection> connect(
-      [String? url, Duration timeout = const Duration(seconds: 10)]);
+  Future<WsConnection> connect([String? url, Duration timeout = const Duration(seconds: 10)]);
 
   Future<dynamic> close();
 
@@ -95,8 +94,7 @@ class _Ws implements WsConnection {
   }
 
   @override
-  Future<WsConnection> connect(
-      [String? url, Duration timeout = const Duration(seconds: 10)]) async {
+  Future<WsConnection> connect([String? url, Duration timeout = const Duration(seconds: 10)]) async {
     final closed = currentState == WebSocket.closed;
     final connecting = currentState == WebSocket.connecting;
 
@@ -113,34 +111,10 @@ class _Ws implements WsConnection {
     Logger.debug(_tag, "connecting to $_url");
 
     try {
-      Platform.version;
-    } on UnsupportedError {
-      Logger.debug(_tag, "use html websocket");
-      return await _connectWeb(timeout);
-    } catch (e) {
-      rethrow;
-    }
-
-    return WebSocket.connect(_url).timeout(timeout).then((value) {
-      Logger.debug(_tag, "ws connected");
-      _ws = IOWebSocketChannel(value);
-      _initialized = true;
+      _ws = WebSocketFactory.create(_url);
       _ws.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
-      _newState(WebSocket.open);
-      return this;
-    }).catchError((e) {
-      currentState = WebSocket.closed;
-      throw e;
-    });
-  }
-
-  Future<WsConnection> _connectWeb(Duration timeout) async {
-    try {
-      throw UnimplementedError("not implemented");
-      // final ch = HtmlWebSocketChannel.connect(_url);
-      // _ws = ch;
-      // _ws.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
-      // await ch.ready.timeout(timeout);
+      await _ws.ready.timeout(timeout);
+      Logger.debug(_tag, "ws connected");
       _initialized = true;
       _newState(WebSocket.open);
     } catch (e) {
@@ -153,12 +127,10 @@ class _Ws implements WsConnection {
   @override
   Future<void> send(dynamic message, [bool json = true]) async {
     if (!_initialized) {
-      throw WsException(
-          WsException.codeNotConnectedYet, "connection not initialized");
+      throw WsException(WsException.codeNotConnectedYet, "connection not initialized");
     }
     if (currentState != WebSocket.open) {
-      throw WsException(WsException.codeClosed,
-          "ws is not open, current state: $currentState");
+      throw WsException(WsException.codeClosed, "ws is not open, current state: $currentState");
     }
     try {
       var m = message;
@@ -176,8 +148,7 @@ class _Ws implements WsConnection {
   @override
   Future<dynamic> close() async {
     if (!_initialized) {
-      throw WsException(
-          WsException.codeNotConnectedYet, "connection not initialized");
+      throw WsException(WsException.codeNotConnectedYet, "connection not initialized");
     }
     Logger.debug(_tag, "closing...");
     _newState(WebSocket.closing);
