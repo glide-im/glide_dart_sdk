@@ -1,6 +1,33 @@
+// general message type, persistent
+
 import 'dart:convert';
 
-import 'package:glide_dart_sdk/glide_dart_sdk.dart';
+import 'package:glide_dart_sdk/src/ws/protocol.dart';
+
+part 'message_type.dart';
+
+abstract class MessageType<T> {
+  final int type;
+  final String name;
+
+  final bool isUserMessage;
+
+  static final Map<int, MessageType> _subTypes = {};
+
+  static MessageType? typeOf(num type) => _subTypes[type];
+
+  static void register(MessageType type) {
+    _subTypes[type.type] = type;
+  }
+
+  MessageType({required this.type, required this.name, this.isUserMessage = true});
+
+  String contentDescription(T data) => data.toString();
+
+  T decode(dynamic data) => data as T;
+
+  dynamic encode(T data) => data;
+}
 
 enum MessageStatus {
   pending(1),
@@ -23,153 +50,18 @@ enum MessageStatus {
   }
 }
 
-// client custom message type
-enum CustomMessageType {
-  stream(10011),
-  typing(10020),
-  unknown(-1);
-
-  final num type;
-
-  const CustomMessageType(this.type);
-
-  static final _map = {
-    for (var type in CustomMessageType.values) type.type: type,
-  };
-
-  static CustomMessageType valueOf(int value) =>
-      _map[value] ?? CustomMessageType.unknown;
-}
-
-class CustomMessageBody {
-  final CustomMessageType type;
-  final dynamic data;
-
-  CustomMessageBody({required this.type, required this.data});
-
-  @override
-  String toString() {
-    return 'CustomMessageBody{type: $type, data: $data}';
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'type': type.type,
-      'data': data,
-    };
-  }
-
-  factory CustomMessageBody.fromMap(Map<String, dynamic> map) {
-    return CustomMessageBody(
-      type: CustomMessageType.valueOf(map['type']),
-      data: map['data'] as dynamic,
-    );
-  }
-}
-
-enum FileMessageType {
-  image(1),
-  audio(2),
-  video(3),
-  document(4),
-  unknown(-1);
-
-  final int value;
-
-  const FileMessageType(this.value);
-
-  static FileMessageType of(String name) {
-    final ext = name
-        .split('.')
-        .last;
-    switch (ext) {
-      case 'png':
-      case 'jpg':
-      case 'jpeg':
-      case 'gif':
-        return FileMessageType.image;
-      case 'mp4':
-      case 'avi':
-        return FileMessageType.video;
-      case 'pdf':
-      case 'ppt':
-      case 'doc':
-      case 'xls':
-      case 'pptx':
-      case 'docx':
-      case 'xlsx':
-        return FileMessageType.document;
-      case 'mp3':
-      case 'wav':
-      case 'ogg':
-      case 'm4a':
-        return FileMessageType.audio;
-      default:
-        return FileMessageType.unknown;
-    }
-  }
-
-  static final Map<num, FileMessageType> _map = {
-    for (var type in FileMessageType.values) type.value: type
-  };
-
-  static FileMessageType valueOf
-      (int value) {
-    return _map[value] ?? FileMessageType.unknown;
-  }
-}
-
-class FileMessageBody {
-  final String name;
-  final String url;
-  final num size;
-  final FileMessageType type;
-
-  FileMessageBody({
-    required this.name,
-    required this.url,
-    required this.size,
-    required this.type,
-  });
-
-  @override
-  String toString() {
-    return 'FileMessageBody{name: $name, url: $url, size: $size, type: $type}';
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'name': name,
-      'url': url,
-      'size': size,
-      'type': type.value,
-    };
-  }
-
-  factory FileMessageBody.fromMap(Map<String, dynamic> map) {
-    return FileMessageBody(
-      name: map['name'] as String,
-      url: map['url'] as String,
-      size: map['size'] as num,
-      type: FileMessageType.valueOf(map['type']),
-    );
-  }
-}
-
-class Message {
-  final MessageStatus status;
-
+class Message<T> {
   final num mid;
   final num seq;
   final String from;
   final String to;
-  final ChatMessageType type;
-  final dynamic content;
+  final MessageStatus status;
+  final MessageType<T> type;
+  final T content;
   final num sendAt;
   final String cliMid;
 
   Message({
-    required this.status,
     required this.mid,
     required this.seq,
     required this.from,
@@ -178,68 +70,116 @@ class Message {
     required this.content,
     required this.sendAt,
     required this.cliMid,
+    this.status = MessageStatus.unknown,
   });
 
-  factory Message.fromMap(Map<String, dynamic> json) {
-    return Message.wrap(
-      GlideChatMessage.fromJson(json),
-      MessageStatus.received,
-    );
-  }
-
-  factory Message.wrap(GlideChatMessage cm, MessageStatus status) {
-    final type = ChatMessageType.of(cm.type);
-    dynamic content;
-    if (type.isTextBody()) {
-      content = cm.content as String?;
-    } else {
-      if (cm.content is String) {
-        content = JsonDecoder().convert(cm.content as String);
-      } else {
-        content = cm.content;
-      }
-    }
-    return Message(
-      status: status,
-      mid: cm.mid,
-      seq: cm.seq,
-      from: cm.from,
-      to: cm.to,
-      type: type,
+  factory Message.decode(ProtocolMessage raw) {
+    dynamic json = raw.data;
+    num? t = json['type'] as num;
+    MessageType? type = MessageType.typeOf(t) ?? UnknownMessageType.instance;
+    T content = type.decode(json['content'] ?? json['body']);
+    var msg = Message(
+      mid: json['mid'] ?? 0,
+      seq: json['seq'] ?? 0,
+      from: json['from'] ?? '',
+      to: json['to'] ?? '',
+      type: type as MessageType<T>,
+      status: MessageStatus.unknown,
       content: content,
-      sendAt: cm.sendAt,
-      cliMid: cm.cliMid,
+      sendAt: json['sendAt'] ?? 0,
+      cliMid: json['cliMid'] ?? '',
     );
-  }
-
-  bool validate() {
-    if (content is String) {
-      return type.isTextBody();
+    if (msg.to == '') {
+      msg = msg.copyWith(to: raw.to);
     }
-    return !type.isTextBody();
+    return msg;
   }
 
-  Message copyWith({
-    MessageStatus? status,
+  bool validate() => true;
+
+  dynamic encodeBody() {
+    return type.encode(content);
+  }
+
+  dynamic decodeBody(dynamic data) {
+    return type.decode(data);
+  }
+
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{};
+    map['mid'] = mid;
+    map['seq'] = seq;
+    map['from'] = from;
+    map['to'] = to;
+    map['type'] = type.type;
+    map['content'] = type.encode(content);
+    map['sendAt'] = sendAt;
+    map['cliMid'] = cliMid;
+    return map;
+  }
+
+  @override
+  String toString() {
+    return jsonEncode(toJson());
+  }
+
+  Message<T> copyWith({
     num? mid,
     num? seq,
     String? from,
     String? to,
-    ChatMessageType? type,
-    dynamic content,
+    MessageType<T>? type,
+    T? content,
     num? sendAt,
+    MessageStatus? status,
     String? cliMid,
   }) {
-    return Message(
-      status: status ?? this.status,
+    return Message<T>(
       mid: mid ?? this.mid,
       seq: seq ?? this.seq,
       from: from ?? this.from,
+      status: status ?? this.status,
       to: to ?? this.to,
       type: type ?? this.type,
       content: content ?? this.content,
       sendAt: sendAt ?? this.sendAt,
       cliMid: cliMid ?? this.cliMid,
+    );
+  }
+}
+
+class GlideAckMessage {
+  final num mid;
+  final String from;
+  final String to;
+  final String cliMid;
+  final num seq;
+
+  GlideAckMessage({
+    required this.mid,
+    required this.from,
+    required this.to,
+    required this.cliMid,
+    required this.seq,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'mid': mid,
+      'from': from,
+      'cliMid': cliMid,
+      'seq': seq,
+      'to': to,
+    };
+  }
+
+  factory GlideAckMessage.fromMap(Map<String, dynamic> map) {
+    return GlideAckMessage(
+      mid: map['mid'] ?? 0,
+      from: map['from'] ?? '',
+      to: map['to'] ?? '',
+      cliMid: map['cliMid'] ?? '',
+      seq: map['seq'] ?? 0,
     );
   }
 }

@@ -15,7 +15,6 @@ import 'package:rxdart/rxdart.dart';
 import 'config.dart';
 import 'message.dart';
 import 'session_manager.dart';
-import 'ws/messages.dart';
 import 'ws/protocol.dart';
 import 'ws/ws_im_client.dart';
 
@@ -67,6 +66,22 @@ class Glide {
 
   Stream<String> init() async* {
     yield "$tag start init";
+    final types = <MessageType>{
+      TextMessageType.instance,
+      ImageMessageType.instance,
+      FileMessageType.instance,
+      StreamTextMessageType.instance,
+      LeaveMessageType.instance,
+      EnterMessageType.instance,
+      UnknownMessageType.instance,
+      NotifyMembersMessageType.instance,
+      CustomMessageType.instance,
+      TypingMessageType.instance,
+    };
+    for (var t in types) {
+      MessageType.register(t);
+    }
+
     states().listen((event) {
       state = event;
     });
@@ -93,7 +108,11 @@ class Glide {
     });
     _cli.messageStream().listen(
       (event) {
-        _handleMessage(event);
+        try {
+          _handleMessage(event);
+        } catch (e, s) {
+          Logger.err(tag, "${event.action}->${event.data}\n$e\n$s");
+        }
       },
       onError: (e) {},
       onDone: () {},
@@ -148,14 +167,9 @@ class Glide {
   }
 
   Future initCache(String uid) async {
-    Logger.info(tag,
-        "init account cache, uid: $uid, ${_context.sessionCache}, ${_context.messageCache}");
-    await _context.sessionCache
-        .init(uid)
-        .timeout(const Duration(seconds: 5));
-    await _context.messageCache
-        .init(uid)
-        .timeout(const Duration(seconds: 5));
+    Logger.info(tag, "init account cache, uid: $uid, ${_context.sessionCache}, ${_context.messageCache}");
+    await _context.sessionCache.init(uid).timeout(const Duration(seconds: 5));
+    await _context.messageCache.init(uid).timeout(const Duration(seconds: 5));
 
     await _sessions.init().forEach((event) {
       Logger.info(tag, "session manager: $event");
@@ -174,8 +188,7 @@ class Glide {
     }
     try {
       final bean = await api.auth.loginToken(_token);
-      await client.request(Action.auth, bean.credential!.toJson(),
-          needAuth: false);
+      await client.request(Action.auth, bean.credential!.toJson(), needAuth: false);
     } catch (e) {
       client.close();
       throw GlideException.authorizeFailed;
@@ -189,16 +202,13 @@ class Glide {
       case Action.messageChat:
       case Action.messageGroup:
       case Action.messageGroupNotify:
-        Message cm = Message.fromMap(message.data);
-        _sessions
-            .onMessage(message.action, cm)
-            .timeout(const Duration(seconds: 3))
-            .listen(
+        Message cm = Message.decode(message);
+        _sessions.onMessage(message.action, cm).timeout(const Duration(seconds: 3)).listen(
           (event) {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
-          onError: (e) {
-            Logger.err(tag, e);
+          onError: (e, s) {
+            Logger.err(tag, s);
           },
           onDone: () {
             Logger.info(tag, "[message-${message.hashCode}] handled done");
@@ -206,11 +216,8 @@ class Glide {
         );
         break;
       case Action.messageClient:
-        Message cm = Message.fromMap(message.data);
-        _sessions
-            .onClientMessage(message.action, cm)
-            .timeout(const Duration(seconds: 3))
-            .listen(
+        Message cm = Message.decode(message);
+        _sessions.onClientMessage(message.action, cm).timeout(const Duration(seconds: 3)).listen(
           (event) {
             Logger.info(tag, "[cli-message-${message.hashCode}] $event");
           },
@@ -222,10 +229,7 @@ class Glide {
       case Action.ackNotify:
       case Action.ackMessage:
         final ack = GlideAckMessage.fromMap(message.data);
-        _sessions
-            .onAck(message.action, ack)
-            .timeout(const Duration(seconds: 3))
-            .listen((event) {
+        _sessions.onAck(message.action, ack).timeout(const Duration(seconds: 3)).listen((event) {
           //
         }, onError: (e, s) {
           Logger.err(tag, s);

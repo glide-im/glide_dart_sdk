@@ -10,7 +10,6 @@ void main() async {
 
   await glide.init().last;
   glide.sessionManager.events().listen((event) {
-    print("event: $event");
     if (event.type == SessionEventType.sessionAdded) {
       glide.sessionManager
           .get(event.id)

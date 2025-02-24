@@ -1,13 +1,12 @@
 import 'dart:async';
 
 import 'package:glide_dart_sdk/src/context.dart';
+import 'package:glide_dart_sdk/src/message.dart';
 import 'package:glide_dart_sdk/src/utils/logger.dart';
-import 'package:glide_dart_sdk/src/ws/messages.dart';
 import 'package:glide_dart_sdk/src/ws/protocol.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'errors.dart';
-import 'message.dart';
 import 'session.dart';
 
 abstract interface class SessionListCache {
@@ -152,7 +151,11 @@ class _SessionManagerImpl implements SessionManagerInternal {
       throw GlideException(message: "session already exists");
     }
     id2session[session.info.id] = session;
-    await ctx.sessionCache.addSession(session.info);
+    try {
+      await ctx.sessionCache.addSession(session.info);
+    } catch (e) {
+      Logger.err("session cache add error", e);
+    }
     ctx.event.add(GlobalEvent(
       source: source,
       event: SessionEvent(
@@ -163,53 +166,63 @@ class _SessionManagerImpl implements SessionManagerInternal {
     return session;
   }
 
+  Future<GlideSessionInternal> checkSession(Message m) async {
+    final sessionType = m.to != ctx.myId ? SessionType.channel : SessionType.chat;
+    final target = m.to == ctx.myId ? m.from : m.to;
+    GlideSessionInternal? session = id2session[target];
+    if (session != null) {
+      return session;
+    }
+    return await create(target, sessionType) as GlideSessionInternal;
+  }
+
+  Stream<String> handleGroupNotify(GlideSessionInternal session, Message m) async* {
+    if (m.type == EnterMessageType.instance) {
+      session.onMemberStateChange([m.content], SessionMemberState.online);
+    } else if (m.type == LeaveMessageType.instance) {
+      session.onMemberStateChange([m.content], SessionMemberState.offline);
+    } else if (m.type == NotifyMembersMessageType.instance) {
+      session.onMemberStateChange(m.content, SessionMemberState.online);
+    }
+  }
+
   @override
   Stream<String> onMessage(Action action, Message m) async* {
     await _initialized();
+    // yield "$source onMessage, $m";
+    final session = await checkSession(m);
     if (action == Action.messageGroupNotify) {
-      yield "$source message ignored";
+      yield* handleGroupNotify(session, m);
       return;
     }
     Message cm = m;
+    final target = m.to == ctx.myId ? m.from : m.to;
     if (cm.sendAt < 171878687139) {
-      cm = cm.copyWith(sendAt: DateTime
-          .now()
-          .millisecondsSinceEpoch);
+      cm = cm.copyWith(sendAt: DateTime.now().millisecondsSinceEpoch);
     }
-    final target = cm.to == ctx.myId ? cm.from : cm.to;
-    GlideSessionInternal? session = id2session[target];
-    final type = cm.to != ctx.myId ? SessionType.channel : SessionType.chat;
-
-    if (type == SessionType.chat) {
+    if (session.info.type == SessionType.chat && m.type.isUserMessage) {
       ctx.ws
           .send(ProtocolMessage.ackRequest(GlideAckMessage(
-        mid: cm.mid,
-        from: ctx.myId,
-        to: target,
-        cliMid: cm.cliMid,
-        seq: cm.seq,
-      )))
+            mid: cm.mid,
+            from: ctx.myId,
+            to: target,
+            cliMid: cm.cliMid,
+            seq: cm.seq,
+          )))
           .execute()
           .onError((error, stackTrace) {
         Logger.err("message ack error", error);
       });
       yield "$source message acked";
     }
-
-    if (session == null) {
-      session = await create(target, type) as GlideSessionInternal;
-      yield "$source session created ${session.info.id}";
-    }
-    final ncm =
-    ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
+    final ncm = ctx.sessionEventInterceptor.onInterceptMessage(session.info, cm);
     if (ncm == null) {
       yield "message intercepted";
       return;
     }
     yield* session.onMessage(ncm);
 
-    final increment =
-    ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
+    final increment = ctx.sessionEventInterceptor.onIncrementUnread(session.info, ncm);
     await session.addUnread(increment);
 
     yield "$source notify update";
@@ -253,6 +266,7 @@ class _SessionManagerImpl implements SessionManagerInternal {
     });
   }
 
+  @override
   Future delete(String id, bool deleteMessage) async {
     final session = id2session[id];
     if (session == null) {

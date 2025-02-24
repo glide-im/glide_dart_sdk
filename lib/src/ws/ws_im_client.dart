@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:glide_dart_sdk/src/ws/messages.dart';
+import 'package:glide_dart_sdk/src/message.dart';
 import 'package:glide_dart_sdk/src/ws/ws_client.dart';
 import 'package:glide_dart_sdk/src/ws/ws_conn.dart';
 
@@ -70,7 +70,7 @@ class GlideWsClient extends WsClientImpl {
   }
 
   MessageTask<T> sendChatMessage<T>(
-      Action action, GlideChatMessage chatMessage, String ticket) {
+      Action action, Message chatMessage, String ticket) {
     final m = ProtocolMessage(
       action: action,
       data: chatMessage.toJson(),

@@ -28,4 +28,16 @@ class AuthApi {
         },
         AuthBean.fromJson,
       );
+
+  Future<AuthBean> register(String nickname, String email,  String password, String captcha) => Http.post(
+        "auth/register",
+        {
+          "account": email,
+          "email": email,
+          "captcha": captcha,
+          "password": password,
+          "nickname": nickname,
+        },
+        AuthBean.fromJson,
+      );
 }
