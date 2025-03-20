@@ -1,11 +1,7 @@
 part of 'message.dart';
 
 class UnknownMessageType extends MessageType<String> {
-  static const value = -1;
-
-  static final UnknownMessageType instance = UnknownMessageType();
-
-  UnknownMessageType() : super(type: value, name: 'unknown', isUserMessage: false);
+  UnknownMessageType(int type) : super(type: type, name: 'unknown', isUserMessage: false);
 
   @override
   String contentDescription(String data) => '[Unknown]';
@@ -15,6 +11,16 @@ class UnknownMessageType extends MessageType<String> {
 
   @override
   dynamic encode(String data) => data;
+}
+
+Map<String, dynamic> _parseJson(dynamic data) {
+  if (data is String) {
+    return jsonDecode(data);
+  } else if (data is Map) {
+    return {...data};
+  } else {
+    throw Exception('Unknown data format: ${data.runtimeType}, $data');
+  }
 }
 
 class TextMessageType extends MessageType<String> {
@@ -47,7 +53,10 @@ class EnterMessageType extends MessageType<String> {
   String contentDescription(String data) => '[Enter]';
 
   @override
-  String decode(dynamic data) => (data as Map<String, dynamic>)['uid'] as String;
+  String decode(dynamic data) => _parseJson(data)['uid'] as String;
+
+  @override
+  dynamic encode(String data) => {'uid': data};
 }
 
 class LeaveMessageType extends MessageType<String> {
@@ -61,7 +70,10 @@ class LeaveMessageType extends MessageType<String> {
   String contentDescription(String data) => '[Leave]';
 
   @override
-  String decode(dynamic data) => (data as Map<String, String>)['uid'] as String;
+  String decode(dynamic data) => _parseJson(data)['uid'] as String;
+
+  @override
+  dynamic encode(String data) => {'uid': data};
 }
 
 class NotifyMembersMessageType extends MessageType<List<String>> {
@@ -72,7 +84,10 @@ class NotifyMembersMessageType extends MessageType<List<String>> {
   NotifyMembersMessageType() : super(type: value, name: 'group.notify.members', isUserMessage: false);
 
   @override
-  List<String> decode(dynamic data) => (data['members'] as Iterable).map((it) => it as String).toList();
+  List<String> decode(dynamic data) => [... _parseJson(data)['members']];
+
+  @override
+  dynamic encode(List<String> data) => {'members': data};
 }
 
 class StreamTextMessageType extends MessageType<String> {
@@ -99,7 +114,7 @@ class FileMessageType extends MessageType<FileMessageBody> {
   FileMessageType() : super(type: value, name: 'file');
 
   @override
-  FileMessageBody decode(dynamic data) => FileMessageBody.fromMap(data as Map<String, dynamic>);
+  FileMessageBody decode(dynamic data) => FileMessageBody.fromMap(_parseJson(data));
 
   @override
   dynamic encode(FileMessageBody data) => data.toMap();
@@ -131,7 +146,9 @@ enum FileType {
   const FileType(this.value);
 
   static FileType of(String name) {
-    final ext = name.split('.').last;
+    final ext = name
+        .split('.')
+        .last;
     switch (ext) {
       case 'png':
       case 'jpg':

@@ -73,17 +73,21 @@ enum SessionEventType {
   sessionAdded,
   sessionRemoved,
   sessionUpdated,
+  memberEnter,
+  memberLeave,
+  membersUpdate,
 }
 
 class SessionEvent {
   final SessionEventType type;
   final String id;
+  final dynamic data;
 
-  SessionEvent({required this.type, required this.id});
+  SessionEvent({required this.type, required this.id, this.data});
 
   @override
   String toString() {
-    return 'SessionEvent{type: $type, id: $id}';
+    return 'SessionEvent{type: $type, id: $id, data: $data}';
   }
 }
 
@@ -177,12 +181,22 @@ class _SessionManagerImpl implements SessionManagerInternal {
   }
 
   Stream<String> handleGroupNotify(GlideSessionInternal session, Message m) async* {
+    SessionEvent? event;
     if (m.type == EnterMessageType.instance) {
       session.onMemberStateChange([m.content], SessionMemberState.online);
+      event = SessionEvent(type: SessionEventType.memberEnter, id: session.info.id, data: m.content);
     } else if (m.type == LeaveMessageType.instance) {
+      event = SessionEvent(type: SessionEventType.memberLeave, id: session.info.id, data: m.content);
       session.onMemberStateChange([m.content], SessionMemberState.offline);
     } else if (m.type == NotifyMembersMessageType.instance) {
+      event = SessionEvent(type: SessionEventType.membersUpdate, id: session.info.id, data: m.content);
       session.onMemberStateChange(m.content, SessionMemberState.online);
+    }
+    if (event != null) {
+      ctx.event.add(GlobalEvent(
+        source: source,
+        event: event,
+      ));
     }
   }
 
@@ -193,7 +207,6 @@ class _SessionManagerImpl implements SessionManagerInternal {
     final session = await checkSession(m);
     if (action == Action.messageGroupNotify) {
       yield* handleGroupNotify(session, m);
-      return;
     }
     Message cm = m;
     final target = m.to == ctx.myId ? m.from : m.to;

@@ -73,7 +73,7 @@ class Glide {
       StreamTextMessageType.instance,
       LeaveMessageType.instance,
       EnterMessageType.instance,
-      UnknownMessageType.instance,
+      // UnknownMessageType.instance,
       NotifyMembersMessageType.instance,
       CustomMessageType.instance,
       TypingMessageType.instance,
@@ -208,7 +208,7 @@ class Glide {
             Logger.info(tag, "[message-${message.hashCode}] $event");
           },
           onError: (e, s) {
-            Logger.err(tag, s);
+            Logger.err(tag, '$e\n$s');
           },
           onDone: () {
             Logger.info(tag, "[message-${message.hashCode}] handled done");

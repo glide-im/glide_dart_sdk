@@ -75,8 +75,8 @@ class Message<T> {
 
   factory Message.decode(ProtocolMessage raw) {
     dynamic json = raw.data;
-    num? t = json['type'] as num;
-    MessageType? type = MessageType.typeOf(t) ?? UnknownMessageType.instance;
+    int? t = json['type'] as int;
+    MessageType? type = MessageType.typeOf(t) ?? UnknownMessageType(t);
     T content = type.decode(json['content'] ?? json['body']);
     var msg = Message(
       mid: json['mid'] ?? 0,

@@ -234,6 +234,8 @@ abstract interface class GlideSession {
 
   Stream<MessageEvent> messageEvent();
 
+  Stream<SessionEvent> events();
+
   Future clear();
 
   Future sendMessage<T>(MessageType<T> type, T data);
@@ -367,6 +369,16 @@ class _GlideSessionInternalImpl with SubscriptionManger implements GlideSessionI
   }
 
   @override
+  Stream<SessionEvent> events() async* {
+    yield* ctx.event.stream.mapNotNull((e) {
+      if (e.event is SessionEvent && e.event.id == i.id) {
+        return e.event;
+      }
+      return null;
+    });
+  }
+
+  @override
   void onMemberStateChange(List<String> id, SessionMemberState state) {
     switch (state) {
       case SessionMemberState.offline:
@@ -478,7 +490,7 @@ class _GlideSessionInternalImpl with SubscriptionManger implements GlideSessionI
     ms.sort((a, b) => (a.sendAt - b.sendAt).toInt());
     return ms;
   }
-  
+
   @override
   Future clear() async {
     //
